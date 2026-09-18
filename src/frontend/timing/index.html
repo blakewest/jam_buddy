@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jam Partner · Real-time lab</title>
+  <meta name="description" content="A local MIDI fixture, one drum groove, and live TypeSafe decisions.">
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main>
+    <header><div><div class="eyebrow">JAM PARTNER / EXPERIMENT 01</div><h1>Can the drummer keep up?</h1><p>A simulated pianist. One drum groove. Decisions from Jev.</p></div><div class="header-nav"><span class="local"><span></span> Local session</span><a href="/pattern.html">Pattern builder →</a></div></header>
+    <section class="control-panel" aria-label="Playback controls">
+      <div class="controls">
+        <label>Decision source<select id="mode"><option value="mock">Mock · no API calls</option><option value="live">Live · TypeSafe API</option><option value="replay">Replay · recorded run</option></select></label>
+        <button id="play" class="primary">▶ Play 60-second test</button><button id="stop" disabled>■ Stop</button>
+        <label class="volume">Volume<input id="volume" type="range" min="0" max="0.7" step="0.01" value="0.35"></label>
+      </div>
+      <div class="status-line"><span id="status" role="status">Ready. Start with Mock to hear the fixture.</span><span class="fixed">120 BPM <span>·</span> 4/4 <span>·</span> 100 ms updates</span></div>
+    </section>
+    <section class="stage" aria-label="Performance timeline">
+      <div class="stage-top"><div><span class="eyebrow">NOW PLAYING</span><h2 id="phase">Waiting for the pianist</h2></div><div class="clock"><strong id="clock">00:00.0</strong><span id="bar">Bar 1 · beat 1</span></div></div>
+      <div class="track"><span>Piano</span><div id="piano-track" class="track-plot"></div><span class="track-label" id="piano-status">Silent</span></div>
+      <div class="track"><span>Drums</span><div id="drum-track" class="track-plot"></div><span class="track-label" id="drum-status">Stopped</span></div>
+      <div class="ruler"><span>0 s</span><span>4 s</span><span>8 s</span><span>12 s</span><span>16 s</span></div>
+      <div class="legend"><span><i class="piano-dot"></i>Piano fixture</span><span><i class="drum-dot"></i>Drum playback</span><span>16-second phrase repeats · two silent bars → four piano bars → two silent bars</span></div>
+    </section>
+    <section class="metrics" aria-label="Timing measurements">
+      <article><span>Median response</span><strong id="median">—</strong><small>Request round trip</small></article>
+      <article><span>95% of responses</span><strong id="p95">—</strong><small>Finished within this time</small></article>
+      <article><span>Start deadlines</span><strong id="deadlines">0 / 0</strong><small>Met / missed</small></article>
+      <article><span>Rule agreement</span><strong id="agreement">—</strong><small>Against the explicit test policy</small></article>
+    </section>
+    <div id="details" class="details">No requests yet. Mock and replay do not use your API key.</div>
+    <section class="decision-panel">
+      <div class="section-heading"><h2>Decision log</h2><div><button id="download" disabled>↓ Save recording</button><label class="file-button">↑ Import recording<input id="import" type="file" accept=".json,application/json"></label></div></div>
+      <p class="hint">Newest first. Select a row to inspect the exact state sent to Jev and its response.</p>
+      <div class="table-scroll"><table><thead><tr><th>Session</th><th>Decision</th><th>Round trip</th><th>Result</th></tr></thead><tbody id="log"><tr><td colspan="4" class="empty">Your first decision will appear here.</td></tr></tbody></table></div>
+      <details id="inspector"><summary>Request / response inspector</summary><pre id="payload">Select a decision above.</pre></details>
+    </section>
+    <footer><span id="recording-status">Recordings stay in this browser. Download to keep a copy.</span><span>Use wired headphones. Keep this tab visible during a run.</span></footer>
+  </main>
+</body>
+</html>
