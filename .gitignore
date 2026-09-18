@@ -1,0 +1,7 @@
+.env
+.agents/
+.DS_Store
+.superpowers/
+docs/superpowers/
+recordings/
+skills-lock.json
