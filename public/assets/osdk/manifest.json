@@ -1,0 +1,8 @@
+{
+  "name": "Open Source Drumkit - Jam Partner subset",
+  "source": "https://download.linuxaudio.org/musical-instrument-libraries/sfz/the_open_source_drumkit.tar.7z",
+  "license": "Public Domain",
+  "licenseNotice": "The original OSDK readme states that the samples and mappings are completely in the public domain.",
+  "instruments": ["kick", "snare", "closed_hat", "open_hat"],
+  "velocityLayers": 5
+}
