@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "../server.mjs";
-import { createPatternState, stateForJev } from "../public/pattern-state.js";
+import { createPatternState, stateForJev } from "../src/core/pattern/state.js";
 
 const state = stateForJev(createPatternState(), "Put a strong kick on beat one");
 

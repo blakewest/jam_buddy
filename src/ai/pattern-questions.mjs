@@ -1,4 +1,4 @@
-import { INSTRUMENTS, POSITIONS } from "./public/pattern-state.js";
+import { INSTRUMENTS, POSITIONS } from "../core/pattern/state.js";
 
 const inspect = ["request", "pattern.bars", "pattern.parts", "music_reference", "recent_history"];
 const context = "Make the next single-note edit that moves `pattern` closer to the current `request`. If the pattern already fulfills the request, choose no edits. The application will send another pass with the updated pattern when more work remains. The current request is authoritative; use `recent_history` only to resolve references such as 'that' or 'again'.";

@@ -1,4 +1,4 @@
-import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, resizePattern, stateForJev } from "./pattern-state.js";
+import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, resizePattern, stateForJev } from "./state.js";
 
 function withPass(items, pass) {
   return items.map(item => ({ ...item, pass }));

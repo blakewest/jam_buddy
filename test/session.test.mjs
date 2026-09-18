@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSession, advanceSession, buildState, ingestEvent, applyDecision, makeRequest, expectedAction, summarize, validateRecording, makeFixture } from "../public/session.js";
+import { createSession, advanceSession, buildState, ingestEvent, applyDecision, makeRequest, expectedAction, summarize, validateRecording, makeFixture } from "../src/core/timing/session.js";
 
 test("fixture reveals only elapsed events and repeats on the shared timeline", () => {
   const s = createSession("a");

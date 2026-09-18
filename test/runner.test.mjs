@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createRun } from "../public/runner.js";
-import { makeFixture, CONFIG } from "../public/session.js";
+import { createRun } from "../src/core/timing/runner.js";
+import { makeFixture, CONFIG } from "../src/core/timing/session.js";
 
 function fakeAudio() {
   return { time: 0, piano: [], drums: [], stops: 0, start: async () => {}, nowMs() { return this.time; }, schedulePiano(e) { this.piano.push(e); }, scheduleDrum(e) { this.drums.push(e); }, stopDrums() { this.stops++; }, stopAll() {}, isRunning: () => true };

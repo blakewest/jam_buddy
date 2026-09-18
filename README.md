@@ -23,6 +23,16 @@ You can also run the server directly:
 node --env-file=.env server.mjs
 ```
 
+## Project layout
+
+- `src/ai/` defines the TypeSafe questions.
+- `src/core/` contains pure timing and pattern logic shared by the browser and tests.
+- `src/frontend/` contains the two browser demos, shared UI helpers, and drum samples.
+- `src/services/` contains the local HTTP server and TypeSafe proxy.
+- `test/` contains the automated tests.
+
+The root `server.mjs` only starts the HTTP service.
+
 Use wired headphones and keep the tab visible. Hiding the tab ends the run so browser suspension does not contaminate timing results.
 
 ## Pattern builder
@@ -49,7 +59,7 @@ A fresh browser can replay the measured Live run saved in `recordings/live-60s.j
 
 Only the last 10 seconds / latest 500 MIDI events, local `silent_for_ms`, current drum status, and whether a start is scheduled. Note releases and sustain pedal affect silence calculations. Session IDs, current time, tempo, and next-bar deadlines stay local.
 
-The explicit test rule is: join on the next bar after playing begins; stop after one second with no active/sustained notes; otherwise preserve the current state. `server.mjs` contains the exact question. The TypeSafe model is `jev-latest`; each response's actual model identifier is recorded.
+The explicit test rule is: join on the next bar after playing begins; stop after one second with no active/sustained notes; otherwise preserve the current state. `src/ai/timing-question.mjs` contains the exact question. The TypeSafe model is `jev-latest`; each response's actual model identifier is recorded.
 
 Snapshots are attempted every 100 ms, with one request in flight. Busy ticks are skipped; old states are never queued. Each request has a two-second timeout and no automatic retry of that snapshot. Errors use a fresh snapshot after backoff; rate-limit headers are respected. Invalid credentials or missing configuration end the Live run.
 

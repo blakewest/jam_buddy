@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createIdleSubmit } from "../public/idle-submit.js";
+import { createIdleSubmit } from "../src/frontend/shared/idle-submit.js";
 
 test("auto-submit waits 300 ms after the latest nonempty input", () => {
   const timers = [];

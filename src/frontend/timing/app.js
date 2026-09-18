@@ -1,6 +1,6 @@
-import { CONFIG, makeFixture, summarize, drumWindows, drumHitsBetween, validateRecording } from "./session.js";
-import { createAudio } from "./audio.js";
-import { createRun } from "./runner.js";
+import { CONFIG, makeFixture, summarize, drumWindows, drumHitsBetween, validateRecording } from "/core/timing/session.js";
+import { createAudio } from "/timing-audio.js";
+import { createRun } from "/core/timing/runner.js";
 
 const $ = id => document.getElementById(id);
 const audio = createAudio();

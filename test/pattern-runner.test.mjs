@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPatternState } from "../public/pattern-state.js";
-import { runPatternRequest } from "../public/pattern-runner.js";
+import { createPatternState } from "../src/core/pattern/state.js";
+import { runPatternRequest } from "../src/core/pattern/runner.js";
 
 const choice = (value, probabilities) => ({ type: "choice", choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
 const noReset = { type: "noul", noul: 0 };

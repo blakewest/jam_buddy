@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eventsForWindow, splitPatternWindow } from "../public/pattern-audio.js";
+import { eventsForWindow, splitPatternWindow } from "../src/core/pattern/audio-schedule.js";
 
 const pattern = (bars, notes) => ({ bars, slots_per_bar: 16, notes });
 

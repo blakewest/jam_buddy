@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendHistory, applyPatternAnswers, createPatternState, resizePattern, stateForJev } from "../public/pattern-state.js";
+import { appendHistory, applyPatternAnswers, createPatternState, resizePattern, stateForJev } from "../src/core/pattern/state.js";
 
 const choice = (value, probabilities = { no_op: 0 }) => ({ type: "choice", choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
 const noul = value => ({ type: "noul", noul: value });

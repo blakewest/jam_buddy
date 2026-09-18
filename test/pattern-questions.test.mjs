@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPatternQuestions, PLANNING_QUESTIONS } from "../pattern-questions.mjs";
-import { createPatternState, stateForJev } from "../public/pattern-state.js";
+import { buildPatternQuestions, PLANNING_QUESTIONS } from "../src/ai/pattern-questions.mjs";
+import { createPatternState, stateForJev } from "../src/core/pattern/state.js";
 
 const emptyState = stateForJev(createPatternState(), "Start a beat");
 

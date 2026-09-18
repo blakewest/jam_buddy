@@ -1,7 +1,7 @@
-import { appendHistory, createPatternState, INSTRUMENTS } from "./pattern-state.js";
-import { createPatternPlayer } from "./pattern-audio.js";
-import { runPatternRequest } from "./pattern-runner.js";
-import { createIdleSubmit } from "./idle-submit.js";
+import { appendHistory, createPatternState, INSTRUMENTS } from "/core/pattern/state.js";
+import { createPatternPlayer } from "/pattern-audio.js";
+import { runPatternRequest } from "/core/pattern/runner.js";
+import { createIdleSubmit } from "/frontend/shared/idle-submit.js";
 
 const $ = id => document.getElementById(id);
 const labels = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat" };
