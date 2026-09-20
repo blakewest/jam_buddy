@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendHistory, applyPatternAnswers, createPatternState, resizePattern, stateForJev } from "../src/core/pattern/state.js";
+import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, resizePattern, stateForJev } from "../src/core/pattern/state.js";
 
 const choice = (value, probabilities = { no_op: 0 }) => ({ type: "choice", choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
 const noul = value => ({ type: "noul", noul: value });
-const note = (id, instrument, slot, velocity_layer = 3, bar = 1) => ({ id, instrument, bar, slot, velocity_layer });
+const velocities = [1, 32, 64, 96, 127];
+const note = (id, instrument, slot, velocityLayer = 3, bar = 1) => ({ id, instrument, bar, tick: (slot - 1) * 240, velocity: velocities[velocityLayer - 1] });
 
 function noReset(extra = {}) {
   return { reset_pattern: noul(0), ...extra };
@@ -22,7 +23,7 @@ function modify(id, operationProbability, timing = "no_change", velocity = "no_c
 function remove(id, probability, speculative = {}) {
   return {
     [`${id}_operation`]: choice("remove", { remove: probability, modify: 0, no_op: 1 - probability }),
-    [`${id}_timing`]: choice(speculative.timing ?? "later_4", { later_4: 1 }),
+    [`${id}_timing`]: choice(speculative.timing ?? "later_sixteenth", { later_sixteenth: 1 }),
     [`${id}_velocity`]: choice(speculative.velocity ?? "increase_2", { increase_2: 1 }),
     [`${id}_instrument`]: choice(speculative.instrument ?? "snare", { snare: 1 }),
   };
@@ -33,19 +34,25 @@ function addition(_lane, confidence, instrument, slot, velocity, bar = 1) {
   const action = `add_${instrument}_in_bar_${bar}_at_${positions[slot - 1]}`;
   return {
     [`addition_${instrument}_action`]: choice(action, { no_addition: 1 - confidence, [action]: confidence }),
-    [`addition_${instrument}_velocity`]: choice(`layer_${velocity}`, { [`layer_${velocity}`]: 1 }),
+    [`addition_${instrument}_velocity`]: choice(`velocity_${velocity}`, { [`velocity_${velocity}`]: 1 }),
   };
 }
 
+test("the pattern supports cymbal and tom voices", () => {
+  assert.deepEqual(INSTRUMENTS, ["kick", "snare", "closed_hat", "open_hat", "crash", "high_tom", "mid_tom", "floor_tom"]);
+  const notes = ["crash", "high_tom", "mid_tom", "floor_tom"].map((instrument, index) => ({ id: `note_${index + 1}`, instrument, bar: 1, tick: index * 240, velocity: 96 }));
+  assert.equal(createPatternState({ notes }).pattern.notes.length, 4);
+});
+
 test("a new pattern is an empty one-bar phrase", () => {
   const state = createPatternState();
-  assert.deepEqual(state.pattern, { bars: 1, slots_per_bar: 16, notes: [] });
+  assert.deepEqual(state.pattern, { bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [] });
   assert.deepEqual(state.recent_history, []);
 });
 
 test("resizing preserves notes when expanding and removes truncated bars when shrinking", () => {
   const state = createPatternState({ bars: 2, notes: [note("note_1", "kick", 1), note("note_2", "snare", 5, 4, 2)] });
-  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, slots_per_bar: 16, notes: state.pattern.notes });
+  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: state.pattern.notes });
   assert.deepEqual(resizePattern(state, 1).pattern.notes, [note("note_1", "kick", 1)]);
 });
 
@@ -73,28 +80,28 @@ test("only the four highest-confidence alterations are applied", () => {
 
 test("removal ignores speculative modification answers", () => {
   const state = createPatternState({ notes: [note("note_1", "kick", 1, 1)] });
-  const applied = applyPatternAnswers(state, noReset(remove("note_1", 0.8, { timing: "later_4", velocity: "increase_2", instrument: "snare" })), "remove it");
+  const applied = applyPatternAnswers(state, noReset(remove("note_1", 0.8, { timing: "later_eighth", velocity: "increase_2", instrument: "snare" })), "remove it");
   assert.deepEqual(applied.state.pattern.notes, []);
   assert.equal(applied.result.applied_changes[0].kind, "remove");
 });
 
-test("modification wraps timing across the phrase and clamps velocity layers", () => {
+test("modification shifts tick timing and clamps MIDI velocity", () => {
   const state = createPatternState({ bars: 2, notes: [note("note_1", "kick", 15, 5, 2), note("note_2", "snare", 2, 1)] });
   const answers = noReset({
-    ...modify("note_1", 0.9, "later_3", "increase_2", "open_hat"),
-    ...modify("note_2", 0.8, "earlier_3", "decrease_2"),
+    ...modify("note_1", 0.9, "later_sixteenth", "increase_2", "open_hat"),
+    ...modify("note_2", 0.8, "earlier_sixteenth", "decrease_2"),
   });
   const applied = applyPatternAnswers(state, answers, "move them around");
   assert.deepEqual(applied.state.pattern.notes, [
-    note("note_1", "open_hat", 2, 5),
-    note("note_2", "snare", 15, 1, 2),
+    note("note_1", "open_hat", 16, 5, 2),
+    note("note_2", "snare", 1, 1),
   ]);
 });
 
 test("a modification cannot collide with an occupied cell", () => {
   const state = createPatternState({ notes: [note("note_1", "kick", 1), note("note_2", "kick", 2)] });
   const answers = noReset({
-    ...modify("note_2", 0.9, "earlier_1"),
+    ...modify("note_2", 0.9, "earlier_sixteenth"),
   });
   const applied = applyPatternAnswers(state, answers, "move the second kick earlier");
   assert.deepEqual(applied.state.pattern.notes, state.pattern.notes);
@@ -112,7 +119,7 @@ test("a confident addition choice is applied without a separate Noul gate", () =
 test("a combined addition action maps instrument and position together", () => {
   const answers = noReset({
     addition_closed_hat_action: choice("add_closed_hat_in_bar_2_at_beat_2_and", { no_addition: 0.02, add_closed_hat_in_bar_2_at_beat_2_and: 0.98 }),
-    addition_closed_hat_velocity: choice("layer_3", { layer_3: 1 }),
+    addition_closed_hat_velocity: choice("velocity_3", { velocity_3: 1 }),
   });
   const applied = applyPatternAnswers(createPatternState({ bars: 2 }), answers, "hat in bar two");
   assert.deepEqual(applied.state.pattern.notes, [note("note_1", "closed_hat", 7, 3, 2)]);
@@ -124,8 +131,8 @@ test("Jev state groups notes by instrument and includes musical references", () 
     note("note_2", "closed_hat", 3, 2),
   ] }), "add the rest of the eighths");
   assert.equal(state.pattern.bars, 1);
-  assert.deepEqual(state.pattern.parts.kick, [{ id: "note_1", bar: 1, position: "beat_1", velocity_layer: 4 }]);
-  assert.deepEqual(state.pattern.parts.closed_hat, [{ id: "note_2", bar: 1, position: "beat_1_and", velocity_layer: 2 }]);
+  assert.deepEqual(state.pattern.parts.kick, [{ id: "note_1", bar: 1, tick: 0, position: "beat_1", velocity: 96 }]);
+  assert.deepEqual(state.pattern.parts.closed_hat, [{ id: "note_2", bar: 1, tick: 480, position: "beat_1_and", velocity: 32 }]);
   assert.deepEqual(state.music_reference.all_eighths, ["beat_1", "beat_1_and", "beat_2", "beat_2_and", "beat_3", "beat_3_and", "beat_4", "beat_4_and"]);
   assert.deepEqual(state.music_reference.four_on_the_floor.kick, ["beat_1", "beat_2", "beat_3", "beat_4"]);
   assert.deepEqual(state.music_reference.backbeat.snare, ["beat_2", "beat_4"]);

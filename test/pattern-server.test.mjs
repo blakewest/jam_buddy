@@ -79,7 +79,7 @@ test("planning proxy returns edit count, phrase length, and relevant instruments
     assert.equal(body.operation_count, 1);
     assert.equal(body.phrase_bars, 4);
     assert.deepEqual(body.relevant_instruments, ["snare"]);
-    assert.equal(body.question_count, 6);
+    assert.equal(body.question_count, 10);
   }, { fetchImpl: async (_url, options) => {
     const payload = JSON.parse(options.body);
     assert.deepEqual(Object.keys(payload.questions.operation_count.criteria), Array.from({ length: 9 }, (_, count) => `operations_${count}`));
@@ -123,4 +123,31 @@ test("pattern proxy sanitizes upstream failures and preserves retry timing", asy
     assert.equal(response.headers.get("Retry-After"), "4");
     assert.ok(!(await response.text()).includes("pattern-test-secret"));
   }, { fetchImpl: async () => new Response("pattern-test-secret", { status: 429, headers: { "Retry-After": "4" } }) });
+});
+
+test("request tree routes then searches and selects from bounded presets", async () => {
+  await withServer(async url => {
+    const headers = { "Content-Type": "application/json", Origin: url };
+    const route = await fetch(`${url}/api/pattern-route`, { method: "POST", headers, body: JSON.stringify({ request: "give me a rock beat in 3/4" }) });
+    assert.equal(route.status, 200);
+    assert.equal((await route.json()).route.next_node, "preset_search");
+
+    const search = await fetch(`${url}/api/preset-search`, { method: "POST", headers, body: JSON.stringify({ request: "give me a rock beat in 3/4" }) });
+    const searchBody = await search.json();
+    assert.equal(search.status, 200);
+    assert.deepEqual(searchBody.candidate_ids, ["rock_waltz"]);
+
+    const select = await fetch(`${url}/api/preset-select`, { method: "POST", headers, body: JSON.stringify({ request: "give me a rock beat in 3/4", candidate_ids: searchBody.candidate_ids }) });
+    assert.equal(select.status, 200);
+    assert.equal((await select.json()).preset_id, "rock_waltz");
+  }, { fetchImpl: async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    const answers = answerQuestions(payload.questions);
+    if (answers.request_category) answers.request_category = { type: "choice", choice: "load_preset", probabilities: { load_preset: 1 }, confidence: 1 };
+    if (answers.meter) {
+      answers.meter = { type: "choice", choice: "3/4", probabilities: { "3/4": 1 }, confidence: 1 };
+      answers.genre_rock = { type: "noul", noul: 0.98 };
+    }
+    return Response.json({ model: "test-jev", answers, usage: {} });
+  } });
 });

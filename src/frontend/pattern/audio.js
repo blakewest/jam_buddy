@@ -1,9 +1,8 @@
-import { splitPatternWindow } from "/core/pattern/audio-schedule.js";
+import { patternDurationSeconds, splitPatternWindow } from "/core/pattern/audio-schedule.js";
 
-const BAR_SECONDS = 2;
 const LOOKAHEAD_SECONDS = 0.1;
 const POLL_MS = 25;
-const instruments = ["kick", "snare", "closed_hat", "open_hat"];
+const instruments = ["kick", "snare", "closed_hat", "open_hat", "crash", "high_tom", "mid_tom", "floor_tom"];
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -13,8 +12,10 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
   let timer;
   let loaded = false;
   let playing = false;
-  let activePattern = { bars: 1, slots_per_bar: 16, notes: [] };
+  let activePattern = { bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [] };
   let pendingPattern = null;
+  let activeBpm = 120;
+  let pendingBpm = null;
   let originTime = 0;
   let scheduledThrough = 0;
   const buffers = new Map();
@@ -49,9 +50,10 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
   }
 
   function scheduleHit(hit) {
-    const buffer = buffers.get(`${hit.instrument}:${hit.velocity_layer}`);
+    const layer = hit.velocity <= 25 ? 1 : hit.velocity <= 50 ? 2 : hit.velocity <= 76 ? 3 : hit.velocity <= 101 ? 4 : 5;
+    const buffer = buffers.get(`${hit.instrument}:${layer}`);
     if (!buffer) {
-      onError(`Missing sample for ${hit.instrument}, layer ${hit.velocity_layer}.`);
+      onError(`Missing sample for ${hit.instrument}, layer ${layer}.`);
       return;
     }
     if (hit.instrument === "closed_hat") {
@@ -75,13 +77,15 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
   function tick() {
     if (!playing) return;
     const horizon = context.currentTime + LOOKAHEAD_SECONDS;
-    const phraseSeconds = activePattern.bars * BAR_SECONDS;
+    const phraseSeconds = patternDurationSeconds(activePattern, activeBpm);
     const completedPhrases = Math.floor(Math.max(0, scheduledThrough - originTime) / phraseSeconds);
     const boundaryTime = originTime + (completedPhrases + 1) * phraseSeconds;
-    const window = splitPatternWindow({ activePattern, pendingPattern, fromTime: scheduledThrough, toTime: horizon, originTime, boundaryTime });
+    const window = splitPatternWindow({ activePattern, activeBpm, pendingPattern, pendingBpm, fromTime: scheduledThrough, toTime: horizon, originTime, boundaryTime });
     window.events.forEach(scheduleHit);
     activePattern = window.activePattern;
+    activeBpm = window.activeBpm;
     pendingPattern = window.pendingPattern;
+    pendingBpm = window.pendingBpm;
     if (window.didSwap) {
       originTime = boundaryTime;
       onSwap(clone(activePattern));
@@ -89,12 +93,14 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
     scheduledThrough = Math.max(scheduledThrough, horizon);
   }
 
-  async function start(pattern) {
+  async function start(pattern, bpm = 120) {
     await load();
     await context.resume();
     stop();
     activePattern = clone(pattern);
+    activeBpm = bpm;
     pendingPattern = null;
+    pendingBpm = null;
     playing = true;
     originTime = context.currentTime + 0.05;
     scheduledThrough = originTime;
@@ -118,9 +124,18 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
     openHatSources.clear();
   }
 
-  function stage(pattern) {
-    if (playing) pendingPattern = clone(pattern);
-    else activePattern = clone(pattern);
+  function stage(pattern, bpm = activeBpm) {
+    if (playing) {
+      pendingPattern = clone(pattern);
+      pendingBpm = bpm;
+    } else {
+      activePattern = clone(pattern);
+      activeBpm = bpm;
+    }
+  }
+
+  function setTempo(bpm) {
+    stage(pendingPattern ?? activePattern, bpm);
   }
 
   function setVolume(value) {
@@ -134,6 +149,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
     start,
     stop,
     stage,
+    setTempo,
     setVolume,
     isPlaying: () => playing,
     hasPendingPattern: () => pendingPattern !== null,

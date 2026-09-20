@@ -12,19 +12,19 @@ test("operation planning offers zero through eight atomic edits", () => {
 });
 
 test("planning chooses phrase length and independently detects involved instruments", () => {
-  assert.deepEqual(Object.keys(PLANNING_QUESTIONS), ["operation_count", "phrase_length", "involves_kick", "involves_snare", "involves_closed_hat", "involves_open_hat"]);
+  assert.deepEqual(Object.keys(PLANNING_QUESTIONS), ["operation_count", "phrase_length", "involves_kick", "involves_snare", "involves_closed_hat", "involves_open_hat", "involves_crash", "involves_high_tom", "involves_mid_tom", "involves_floor_tom"]);
   assert.deepEqual(Object.keys(PLANNING_QUESTIONS.phrase_length.criteria), ["keep_current", "bars_1", "bars_2", "bars_3", "bars_4"]);
-  for (const instrument of ["kick", "snare", "closed_hat", "open_hat"]) assert.equal(PLANNING_QUESTIONS[`involves_${instrument}`].type, "noul");
+  for (const instrument of ["kick", "snare", "closed_hat", "open_hat", "crash", "high_tom", "mid_tom", "floor_tom"]) assert.equal(PLANNING_QUESTIONS[`involves_${instrument}`].type, "noul");
 });
 
-test("an empty four-bar pattern offers 64 positions for one planned instrument", () => {
+test("an empty four-bar pattern offers straight and triplet positions for one planned instrument", () => {
   const state = { ...emptyState, pattern: { ...emptyState.pattern, bars: 4 } };
   const questions = buildPatternQuestions(state, ["closed_hat"]);
   assert.deepEqual(Object.keys(questions), ["reset_pattern", "addition_closed_hat_action", "addition_closed_hat_velocity"]);
-  assert.equal(Object.keys(questions.addition_closed_hat_action.criteria).length, 65);
+  assert.equal(Object.keys(questions.addition_closed_hat_action.criteria).length, 129);
   assert.ok(questions.addition_closed_hat_action.criteria.add_closed_hat_in_bar_1_at_beat_1);
   assert.ok(questions.addition_closed_hat_action.criteria.add_closed_hat_in_bar_4_at_beat_4_a);
-  assert.deepEqual(Object.keys(questions.addition_closed_hat_velocity.criteria), ["layer_1", "layer_2", "layer_3", "layer_4", "layer_5"]);
+  assert.deepEqual(Object.keys(questions.addition_closed_hat_velocity.criteria), ["velocity_1", "velocity_2", "velocity_3", "velocity_4", "velocity_5"]);
 });
 
 test("occupied instrument-position additions are omitted", () => {
@@ -32,17 +32,17 @@ test("occupied instrument-position additions are omitted", () => {
   const criteria = buildPatternQuestions(state, ["closed_hat"]).addition_closed_hat_action.criteria;
   assert.equal(criteria.add_closed_hat_in_bar_2_at_beat_1_and, undefined);
   assert.ok(criteria.add_closed_hat_in_bar_1_at_beat_1_and);
-  assert.equal(Object.keys(criteria).length, 32);
+  assert.equal(Object.keys(criteria).length, 64);
 });
 
 test("each existing note adds four questions with its full meaning", () => {
   const note = { id: "note_7", instrument: "open_hat", bar: 1, slot: 16, velocity_layer: 2 };
   const questions = buildPatternQuestions(stateForJev(createPatternState({ notes: [note] }), "change it"), ["open_hat"]);
   assert.equal(Object.keys(questions).length, 7);
-  const sentNote = { id: "note_7", instrument: "open_hat", bar: 1, position: "beat_4_a", velocity_layer: 2 };
+  const sentNote = { id: "note_7", instrument: "open_hat", bar: 1, tick: 3600, position: "beat_4_a", velocity: 32 };
   for (const suffix of ["operation", "timing", "velocity", "instrument"]) assert.deepEqual(questions[`note_7_${suffix}`].instructions.note, sentNote);
   assert.deepEqual(Object.keys(questions.note_7_operation.criteria), ["remove", "modify", "no_op"]);
-  assert.deepEqual(Object.keys(questions.note_7_timing.criteria), ["earlier_4", "earlier_3", "earlier_2", "earlier_1", "no_change", "later_1", "later_2", "later_3", "later_4"]);
+  assert.deepEqual(Object.keys(questions.note_7_timing.criteria), ["earlier_eighth", "earlier_sixteenth", "earlier_eighth_triplet", "earlier_sixteenth_triplet", "no_change", "later_sixteenth_triplet", "later_eighth_triplet", "later_sixteenth", "later_eighth"]);
 });
 
 test("only notes from planned instruments receive edit questions", () => {

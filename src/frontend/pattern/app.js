@@ -1,11 +1,14 @@
 import { appendHistory, createPatternState, INSTRUMENTS } from "/core/pattern/state.js";
 import { createPatternPlayer } from "/pattern-audio.js";
 import { runPatternRequest } from "/core/pattern/runner.js";
+import { runPatternTree } from "/core/pattern/request-runner.js";
+import { ticksPerBar } from "/core/pattern/musical-time.js";
 import { createIdleSubmit } from "/frontend/shared/idle-submit.js";
 
 const $ = id => document.getElementById(id);
-const labels = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat" };
+const labels = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
 let state = createPatternState();
+let tempoBpm = 120;
 let pendingState = null;
 let logs = [];
 let busy = false;
@@ -33,7 +36,7 @@ async function storage(value) {
 }
 
 async function persist() {
-  try { await storage({ state: pendingState ?? state, logs: logs.slice(-50) }); } catch { $("request-status").textContent = "Browser storage is unavailable; this session will not survive a reload."; }
+  try { await storage({ state: pendingState ?? state, tempo_bpm: tempoBpm, logs: logs.slice(-50) }); } catch { $("request-status").textContent = "Browser storage is unavailable; this session will not survive a reload."; }
 }
 
 const player = createPatternPlayer({
@@ -62,41 +65,26 @@ function renderGrid() {
   const pattern = displayedState().pattern;
   const container = $("pattern-grid");
   container.replaceChildren();
-  const stepNames = ["1", "e", "&", "a", "2", "e", "&", "a", "3", "e", "&", "a", "4", "e", "&", "a"];
+  const barTicks = ticksPerBar(pattern.meter);
   for (let bar = 1; bar <= pattern.bars; bar++) {
     const section = document.createElement("section");
     section.className = "pattern-bar";
     const heading = document.createElement("h3");
     heading.textContent = `Bar ${bar}`;
-    const grid = document.createElement("div");
-    grid.className = "pattern-grid";
-    const corner = document.createElement("div");
-    corner.className = "grid-cell grid-label step-label";
-    corner.textContent = "Instrument";
-    grid.append(corner);
-    stepNames.forEach((name, index) => {
-      const cell = document.createElement("div");
-      cell.className = `grid-cell step-label${index % 4 === 0 ? " downbeat" : ""}`;
-      cell.textContent = name;
-      grid.append(cell);
-    });
+    const grid = document.createElement("div"); grid.className = "pattern-grid";
     for (const instrument of INSTRUMENTS) {
-      const label = document.createElement("div");
-      label.className = "grid-cell grid-label";
-      label.textContent = labels[instrument];
-      grid.append(label);
-      for (let slot = 1; slot <= 16; slot++) {
-        const cell = document.createElement("div");
-        cell.className = `grid-cell${(slot - 1) % 4 === 0 ? " beat" : ""}`;
-        const note = pattern.notes.find(item => item.instrument === instrument && item.bar === bar && item.slot === slot);
-        if (note) {
-          const marker = document.createElement("span");
-          marker.className = `note-dot ${instrument} velocity-${note.velocity_layer}`;
-          marker.title = `${labels[instrument]}, bar ${bar}, slot ${slot}, velocity layer ${note.velocity_layer}`;
-          cell.append(marker);
-        }
-        grid.append(cell);
+      const row = document.createElement("div"); row.className = "pattern-lane";
+      const label = document.createElement("div"); label.className = "grid-label"; label.textContent = labels[instrument];
+      const track = document.createElement("div"); track.className = "lane-track";
+      for (let beat = 0; beat <= pattern.meter.numerator; beat++) {
+        const line = document.createElement("i"); line.className = "beat-line"; line.style.left = `${beat / pattern.meter.numerator * 100}%`; track.append(line);
       }
+      for (const note of pattern.notes.filter(item => item.instrument === instrument && item.bar === bar)) {
+        const marker = document.createElement("span"); marker.className = `note-dot ${instrument}`;
+        marker.style.left = `${note.tick / barTicks * 100}%`; marker.style.opacity = `${0.45 + note.velocity / 230}`; marker.style.transform = `translate(-50%, -50%) scale(${0.75 + note.velocity / 300})`;
+        marker.title = `${labels[instrument]}, bar ${bar}, tick ${note.tick}, velocity ${note.velocity}`; track.append(marker);
+      }
+      row.append(label, track); grid.append(row);
     }
     section.append(heading, grid);
     container.append(section);
@@ -104,7 +92,8 @@ function renderGrid() {
   $("note-count").textContent = `${pattern.notes.length} note${pattern.notes.length === 1 ? "" : "s"}`;
   $("pattern-heading").textContent = `${pendingState ? "Next-phrase" : pattern.bars === 1 ? "One-bar" : `${pattern.bars}-bar`} pattern`;
   $("phrase-bars").textContent = `${pattern.bars} ${pattern.bars === 1 ? "bar" : "bars"}`;
-  $("phrase-steps").textContent = `${pattern.bars * 16} steps`;
+  $("phrase-steps").textContent = `${pattern.meter.numerator}/${pattern.meter.denominator}`;
+  $("tempo").value = String(tempoBpm);
 }
 
 function renderHistory() {
@@ -139,15 +128,16 @@ function renderHistory() {
 function describeChange(change) {
   if (change.kind === "reset") return "Cleared the entire pattern";
   if (change.kind === "resize") return `Changed phrase from ${change.before_bars} to ${change.after_bars} bars`;
+  if (change.kind === "load_preset") return `Loaded ${change.preset_name}`;
   if (change.kind === "remove") return `Removed ${labels[change.before?.instrument] ?? change.note_id}`;
   if (change.kind === "add") {
     const note = change.after ?? change.proposed;
-    return `Added ${labels[note?.instrument] ?? "note"} in bar ${note?.bar ?? 1} at slot ${note?.slot ?? "?"}, layer ${note?.velocity_layer ?? "?"}`;
+    return `Added ${labels[note?.instrument] ?? "note"} in bar ${note?.bar ?? 1} at tick ${note?.tick ?? "?"}, velocity ${note?.velocity ?? "?"}`;
   }
   if (change.kind === "modify") {
-    const before = change.before ?? { instrument: change.note_id, slot: "?" };
+    const before = change.before ?? { instrument: change.note_id, tick: "?" };
     const after = change.after ?? change.proposed;
-    return `Changed ${labels[before.instrument] ?? before.instrument} in bar ${before.bar ?? 1} at slot ${before.slot}, layer ${before.velocity_layer ?? "?"} → ${labels[after?.instrument] ?? after?.instrument} in bar ${after?.bar ?? 1} at slot ${after?.slot ?? "?"}, layer ${after?.velocity_layer ?? "?"}`;
+    return `Changed ${labels[before.instrument] ?? before.instrument} in bar ${before.bar ?? 1} at tick ${before.tick}, velocity ${before.velocity ?? "?"} → ${labels[after?.instrument] ?? after?.instrument} in bar ${after?.bar ?? 1} at tick ${after?.tick ?? "?"}, velocity ${after?.velocity ?? "?"}`;
   }
   return change.source ?? "Change";
 }
@@ -205,7 +195,7 @@ async function startPlayback(pattern) {
   $("playback-status").textContent = "Loading drum kit…";
   updateControls();
   try {
-    await player.start(pattern);
+    await player.start(pattern, tempoBpm);
     $("playback-status").textContent = "Playing";
   } catch (error) {
     $("playback-status").textContent = error.message;
@@ -218,7 +208,7 @@ async function startPlayback(pattern) {
 function commitOrStage(nextState) {
   if (player.isPlaying()) {
     pendingState = nextState;
-    player.stage(nextState.pattern);
+    player.stage(nextState.pattern, tempoBpm);
     $("request-status").textContent = "Accepted changes are waiting for the next phrase.";
   } else {
     state = nextState;
@@ -236,39 +226,47 @@ $("request-form").addEventListener("submit", async event => {
   if (!request || busy || pendingState) return;
   busy = true;
   updateControls();
-  $("request-status").textContent = "Jev is estimating the number of edits…";
+  $("request-status").textContent = "Jev is routing your request…";
   try {
     let plannedOperationCount = 0;
-    const completed = await runPatternRequest({
-      initialState: state,
+    const post = async (path, body) => {
+      const started = performance.now();
+      const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
+      return { ...data, latency_ms: performance.now() - started };
+    };
+    const completed = await runPatternTree({
+      state,
       request,
-      maxPasses: 8,
-      estimateOperations: async sentState => {
-        const started = performance.now();
-        const response = await fetch("/api/pattern-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: sentState }) });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
-        plannedOperationCount = data.operation_count;
-        $("request-status").textContent = plannedOperationCount === 0 ? `Jev planned a ${data.phrase_bars}-bar phrase with no note edits.` : `Jev planned ${plannedOperationCount} edit${plannedOperationCount === 1 ? "" : "s"} across ${data.phrase_bars} bar${data.phrase_bars === 1 ? "" : "s"}…`;
-        return { ...data, latency_ms: performance.now() - started };
-      },
-      decide: async (sentState, pass, plan) => {
-        $("request-status").textContent = `Jev is considering edit ${pass} of ${plannedOperationCount}…`;
-        const started = performance.now();
-        const response = await fetch("/api/pattern-decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: sentState, instruments: plan.relevant_instruments }) });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
-        return { ...data, latency_ms: performance.now() - started };
-      },
+      route: value => post("/api/pattern-route", { request: value }),
+      searchPresets: value => post("/api/preset-search", { request: value }),
+      selectPreset: (value, candidateIds) => post("/api/preset-select", { request: value, candidate_ids: candidateIds }),
+      runEdit: () => runPatternRequest({
+        initialState: state, request, maxPasses: 8,
+        estimateOperations: async sentState => {
+          $("request-status").textContent = "Jev is planning the edit branch…";
+          const data = await post("/api/pattern-plan", { state: sentState });
+          plannedOperationCount = data.operation_count;
+          return data;
+        },
+        decide: async (sentState, pass, plan) => {
+          $("request-status").textContent = `Jev is considering edit ${pass} of ${plannedOperationCount}…`;
+          return post("/api/pattern-decision", { state: sentState, instruments: plan.relevant_instruments });
+        },
+      }),
     });
-    const log = { request, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms, model: completed.model, usage: completed.usage, question_count: completed.question_count };
+    const log = { request, route: completed.route, visits: completed.visits, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms, model: completed.model, usage: completed.usage, question_count: completed.question_count };
     logs.push(log);
     logs = logs.slice(-50);
     renderInspector(log);
     const tokens = Number(completed.usage?.input_tokens ?? 0) + Number(completed.usage?.output_tokens ?? 0);
-    $("request-meta").textContent = `${completed.state.pattern.bars} bars · ${completed.result.planned_operations} planned · ${completed.passes.length} edit pass${completed.passes.length === 1 ? "" : "es"} · ${Math.round(completed.latency_ms)} ms · ${completed.question_count} questions · ${completed.model}${tokens ? ` · ${tokens} tokens` : ""}`;
+    $("request-meta").textContent = `${completed.route.category.replaceAll("_", " ")} · ${Math.round(completed.latency_ms)} ms · ${completed.question_count} questions${completed.model ? ` · ${completed.model}` : ""}${tokens ? ` · ${tokens} tokens` : ""}`;
     $("request").value = "";
-    commitOrStage(completed.state);
+    if (completed.state === state) {
+      $("request-status").textContent = completed.result.message;
+      renderInspector(log); renderHistory();
+    } else commitOrStage(completed.state);
   } catch (error) {
     $("request-status").textContent = error.message;
   } finally {
@@ -311,6 +309,15 @@ $("stop").addEventListener("click", () => {
 
 $("volume").addEventListener("input", event => player.setVolume(Number(event.target.value)));
 
+$("tempo").addEventListener("change", event => {
+  const value = Math.round(Number(event.target.value));
+  tempoBpm = Math.min(240, Math.max(40, Number.isFinite(value) ? value : 120));
+  event.target.value = String(tempoBpm);
+  player.setTempo(tempoBpm);
+  $("request-status").textContent = player.isPlaying() ? `Tempo ${tempoBpm} BPM applies next phrase.` : `Tempo set to ${tempoBpm} BPM.`;
+  persist();
+});
+
 $("clear").addEventListener("click", () => {
   const entry = { request: "Clear pattern (manual)", applied_changes: ["Cleared the whole pattern"], rejected_changes: [] };
   const next = appendHistory({ ...createPatternState(state), pattern: { ...state.pattern, notes: [] } }, entry);
@@ -325,6 +332,7 @@ $("new-session").addEventListener("click", () => {
   idleSubmit.cancel();
   player.stop();
   state = createPatternState();
+  tempoBpm = 120;
   pendingState = null;
   logs = [];
   $("playback-status").textContent = "Stopped";
@@ -353,6 +361,7 @@ window.addEventListener("pagehide", () => player.stop());
 try {
   const saved = await storage();
   if (saved?.state) state = createPatternState(saved.state);
+  if (Number.isInteger(saved?.tempo_bpm) && saved.tempo_bpm >= 40 && saved.tempo_bpm <= 240) tempoBpm = saved.tempo_bpm;
   if (Array.isArray(saved?.logs)) logs = saved.logs.slice(-50);
   if (logs.length) renderInspector(logs.at(-1));
 } catch { $("request-status").textContent = "Browser storage is unavailable; the demo still works for this tab."; }

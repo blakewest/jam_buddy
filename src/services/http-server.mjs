@@ -2,8 +2,13 @@ import { createServer as httpServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { TIMING_QUESTION } from "../ai/timing-question.mjs";
 import { buildPatternQuestions, PLANNING_QUESTIONS } from "../ai/pattern-questions.mjs";
+import { ROOT_QUESTIONS } from "../ai/request-tree-questions.mjs";
+import { attributesFromAnswers, buildPresetSelectionQuestions, PRESET_SEARCH_QUESTIONS } from "../ai/preset-questions.mjs";
 import { ACTIONS } from "../core/timing/session.js";
-import { INSTRUMENTS, MUSIC_REFERENCE, POSITIONS } from "../core/pattern/state.js";
+import { INSTRUMENTS, MUSIC_REFERENCE } from "../core/pattern/state.js";
+import { resolveRoot } from "../core/pattern/request-tree.js";
+import { filterPresets, presetById } from "../core/pattern/presets.js";
+import { ticksPerBar, TICKS_PER_QUARTER, validMeter } from "../core/pattern/musical-time.js";
 
 const staticFile = (path, contentType) => [new URL(path, import.meta.url), contentType];
 const PUBLIC_FILES = new Map([
@@ -20,6 +25,9 @@ const PUBLIC_FILES = new Map([
   ["/core/pattern/state.js", staticFile("../core/pattern/state.js", "text/javascript")],
   ["/core/pattern/runner.js", staticFile("../core/pattern/runner.js", "text/javascript")],
   ["/core/pattern/audio-schedule.js", staticFile("../core/pattern/audio-schedule.js", "text/javascript")],
+  ["/core/pattern/musical-time.js", staticFile("../core/pattern/musical-time.js", "text/javascript")],
+  ["/core/pattern/presets.js", staticFile("../core/pattern/presets.js", "text/javascript")],
+  ["/core/pattern/request-runner.js", staticFile("../core/pattern/request-runner.js", "text/javascript")],
   ["/frontend/shared/idle-submit.js", staticFile("../frontend/shared/idle-submit.js", "text/javascript")],
   ["/recorded-run.json", staticFile("../../recordings/live-60s.json", "application/json")],
 ]);
@@ -42,14 +50,14 @@ function validState(state) {
 function validPatternState(state) {
   if (!exactKeys(state, ["request", "pattern", "music_reference", "recent_history"]) || typeof state.request !== "string" || !state.request.trim() || state.request.length > 500) return false;
   if (JSON.stringify(state.music_reference) !== JSON.stringify(MUSIC_REFERENCE)) return false;
-  if (!exactKeys(state.pattern, ["bars", "slots_per_bar", "parts"]) || !Number.isInteger(state.pattern.bars) || state.pattern.bars < 1 || state.pattern.bars > 4 || state.pattern.slots_per_bar !== 16 || !exactKeys(state.pattern.parts, INSTRUMENTS)) return false;
+  if (!exactKeys(state.pattern, ["bars", "meter", "ticks_per_quarter", "parts"]) || !Number.isInteger(state.pattern.bars) || state.pattern.bars < 1 || state.pattern.bars > 4 || !validMeter(state.pattern.meter) || state.pattern.ticks_per_quarter !== TICKS_PER_QUARTER || !exactKeys(state.pattern.parts, INSTRUMENTS)) return false;
   const ids = new Set();
   const cells = new Set();
   for (const instrument of INSTRUMENTS) {
     if (!Array.isArray(state.pattern.parts[instrument])) return false;
     for (const note of state.pattern.parts[instrument]) {
-      if (!exactKeys(note, ["id", "bar", "position", "velocity_layer"]) || !/^note_[1-9]\d*$/.test(note.id) || ids.has(note.id) || !Number.isInteger(note.bar) || note.bar < 1 || note.bar > state.pattern.bars || !POSITIONS.includes(note.position) || !Number.isInteger(note.velocity_layer) || note.velocity_layer < 1 || note.velocity_layer > 5) return false;
-      const cell = `${instrument}:${note.bar}:${note.position}`;
+      if (!exactKeys(note, ["id", "bar", "tick", "position", "velocity"]) || !/^note_[1-9]\d*$/.test(note.id) || ids.has(note.id) || !Number.isInteger(note.bar) || note.bar < 1 || note.bar > state.pattern.bars || !Number.isInteger(note.tick) || note.tick < 0 || note.tick >= ticksPerBar(state.pattern.meter) || typeof note.position !== "string" || !Number.isInteger(note.velocity) || note.velocity < 1 || note.velocity > 127) return false;
+      const cell = `${instrument}:${note.bar}:${note.tick}`;
       if (cells.has(cell)) return false;
       ids.add(note.id);
       cells.add(cell);
@@ -85,7 +93,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     const host = req.headers.host;
     if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host ?? "")) return json(res, 403, { error: "Local access only." });
     const path = new URL(req.url, `http://${host}`).pathname;
-    const samplePath = /^\/assets\/osdk\/(kick|snare|closed_hat|open_hat)\/layer-[1-5]\.wav$/.test(path);
+    const samplePath = /^\/assets\/osdk\/(kick|snare|closed_hat|open_hat|crash|high_tom|mid_tom|floor_tom)\/layer-[1-5]\.wav$/.test(path);
     if (req.method === "GET" && samplePath) {
       try {
         const content = await readFile(new URL(`../frontend${path}`, import.meta.url));
@@ -101,7 +109,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       } catch { json(res, 404, { error: "File not found." }); }
       return;
     }
-    if (!["/api/decision", "/api/pattern-decision", "/api/pattern-plan"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
+    if (!["/api/decision", "/api/pattern-decision", "/api/pattern-plan", "/api/pattern-route", "/api/preset-search", "/api/preset-select"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
     if (req.headers.origin && req.headers.origin !== `http://${host}`) return json(res, 403, { error: "Foreign origin rejected." });
     if (req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Cross-site request rejected." });
     if (req.headers["content-type"]?.split(";")[0].trim() !== "application/json") return json(res, 415, { error: "JSON required." });
@@ -119,12 +127,19 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     } catch { return json(res, 400, { error: "Invalid JSON." }); }
     const planRequest = path === "/api/pattern-plan";
     const editRequest = path === "/api/pattern-decision";
+    const routeRequest = path === "/api/pattern-route";
+    const presetSearchRequest = path === "/api/preset-search";
+    const presetSelectRequest = path === "/api/preset-select";
     const patternRequest = editRequest || planRequest;
-    const validInstruments = editRequest && exactKeys(payload, ["state", "instruments"]) && Array.isArray(payload.instruments) && payload.instruments.length >= 1 && payload.instruments.length <= 4 && new Set(payload.instruments).size === payload.instruments.length && payload.instruments.every(instrument => INSTRUMENTS.includes(instrument));
-    const validPayload = planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : exactKeys(payload, ["state"]);
-    if (!validPayload || !(patternRequest ? validPatternState(payload.state) : validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
+    const validInstruments = editRequest && exactKeys(payload, ["state", "instruments"]) && Array.isArray(payload.instruments) && payload.instruments.length >= 1 && payload.instruments.length <= INSTRUMENTS.length && new Set(payload.instruments).size === payload.instruments.length && payload.instruments.every(instrument => INSTRUMENTS.includes(instrument));
+    const validRequestText = typeof payload?.request === "string" && Boolean(payload.request.trim()) && payload.request.length <= 500;
+    const validCandidateIds = presetSelectRequest && exactKeys(payload, ["request", "candidate_ids"]) && validRequestText && Array.isArray(payload.candidate_ids) && payload.candidate_ids.length >= 1 && payload.candidate_ids.length <= 8 && new Set(payload.candidate_ids).size === payload.candidate_ids.length && payload.candidate_ids.every(id => presetById(id));
+    const validPayload = planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : routeRequest || presetSearchRequest ? exactKeys(payload, ["request"]) && validRequestText : presetSelectRequest ? validCandidateIds : exactKeys(payload, ["state"]);
+    if (!validPayload || (patternRequest && !validPatternState(payload.state)) || (!patternRequest && !routeRequest && !presetSearchRequest && !presetSelectRequest && !validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
     if (!apiKey?.trim()) return json(res, 503, { code: "missing_api_key", error: "Set TYPESAFE_API_KEY in the local .env file, then restart the server." });
-    const questions = planRequest ? PLANNING_QUESTIONS : editRequest ? buildPatternQuestions(payload.state, payload.instruments) : { action: TIMING_QUESTION };
+    const candidates = presetSelectRequest ? payload.candidate_ids.map(presetById) : null;
+    const questions = routeRequest ? ROOT_QUESTIONS : presetSearchRequest ? PRESET_SEARCH_QUESTIONS : presetSelectRequest ? buildPresetSelectionQuestions(candidates) : planRequest ? PLANNING_QUESTIONS : editRequest ? buildPatternQuestions(payload.state, payload.instruments) : { action: TIMING_QUESTION };
+    const upstreamState = routeRequest || presetSearchRequest ? { request: payload.request } : presetSelectRequest ? { request: payload.request, candidates: candidates.map(({ id, name, genres, meter, feel, description }) => ({ id, name, genres, meter, feel, description })) } : payload.state;
     const abort = new AbortController();
     const timeoutMs = patternRequest ? 10000 : 2000;
     const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -134,13 +149,24 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       const upstream = await fetchImpl("https://api.typesafe.ai/v1/systemone", {
         method: "POST", signal: abort.signal,
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ state: payload.state, model: "jev-latest", questions }),
+        body: JSON.stringify({ state: upstreamState, model: "jev-latest", questions }),
       });
       if (!upstream.ok) {
         const retry = upstream.headers.get("Retry-After");
         return json(res, upstream.status, { error: `TypeSafe returned HTTP ${upstream.status}.` }, retry ? { "Retry-After": retry } : {});
       }
       const data = await upstream.json();
+      if (routeRequest || presetSearchRequest || presetSelectRequest) {
+        if (!validPatternAnswers(data, questions)) return json(res, 502, { error: "TypeSafe returned invalid request-tree answers." });
+        if (routeRequest) return json(res, 200, { route: resolveRoot(data.answers.request_category.choice), answers: data.answers, model: data.model, usage: data.usage, question_count: 1 });
+        if (presetSearchRequest) {
+          const attributes = attributesFromAnswers(data.answers);
+          const matches = filterPresets(attributes).slice(0, 8);
+          const alternatives = matches.length ? null : { genres: [...new Set(filterPresets({ meter: attributes.meter }).flatMap(item => item.genres))].sort(), meters: ["3/4", "4/4", "6/8"] };
+          return json(res, 200, { attributes, candidate_ids: matches.map(item => item.id), alternatives, answers: data.answers, model: data.model, usage: data.usage, question_count: Object.keys(questions).length });
+        }
+        return json(res, 200, { preset_id: data.answers.preset.choice, answers: data.answers, model: data.model, usage: data.usage, question_count: 1 });
+      }
       if (patternRequest) {
         if (!validPatternAnswers(data, questions)) return json(res, 502, { error: "TypeSafe returned invalid pattern answers." });
         if (planRequest) {

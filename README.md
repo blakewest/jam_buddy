@@ -37,13 +37,17 @@ Use wired headphones and keep the tab visible. Hiding the tab ends the run so br
 
 ## Pattern builder
 
-The pattern builder starts with an empty 16-step bar at 120 BPM and can expand to four bars. Type a request such as `I want a 4 bar phrase`, `Give me a simple backbeat`, or `Add a snare on beat 2 of bar 4`. Jev receives the current pattern, the request, and the newest eight history entries.
+The pattern builder starts with an empty 4/4 bar at 120 BPM and can expand to four bars. Type a request such as `Give me a rock beat in 3/4`, `Load a laid-back hip-hop beat`, or `Add a snare on beat 2`. Tempo is session state: presets inherit it, and the transport can change it from 40–240 BPM.
+
+Every request first passes through one small TypeSafe routing question. The deterministic request tree sends edits through the existing atomic edit planner, preset requests through batched genre/meter/feel questions and bounded catalog selection, and unsupported requests to guidance generated from the registered capabilities.
 
 Each request starts with a planning call that chooses the phrase length, identifies the involved instruments, and estimates zero through eight atomic note operations. The app then generates edit questions only for those instruments and runs at most the estimated number of sequential passes. Each pass sees the pattern produced by the prior pass and applies at most one change. A no-edit response stops the sequence early. Whole-pattern reset requires at least 90% confidence. Collisions are rejected and shown in the inspector. While the loop plays, the final accepted pattern begins at the next phrase boundary.
 
 The current request is authoritative. Recent history is included only to resolve references such as “that” or “again,” so an older request cannot act as a competing instruction. Jev sees the loop grouped into kick, snare, closed-hat, and open-hat parts plus reference definitions for eighth notes, four-on-the-floor, and a backbeat. One request can make at most eight note changes; the raw inspector records every pass while the visible history keeps one row for the request.
 
-The page uses kick, snare, closed hi-hat, and open hi-hat samples from the public-domain Open Source Drumkit, with five velocity layers. Closed hats choke open hats. Pattern state and raw request/response history remain in browser IndexedDB and survive reloads. `Clear pattern` is local and makes no API call; `New session` clears the pattern and its history.
+Patterns use 960 ticks per quarter note, preserve human timing and MIDI velocity, and support straight eighths, straight sixteenths, eighth-note triplets, and sixteenth-note triplets for editing. The page plays kick, snare, closed/open hi-hat, crash, high tom, mid tom, and floor tom samples from the public-domain Open Source Drumkit, with five velocity layers. Closed hats choke open hats. Pattern state and raw request/response history remain in browser IndexedDB and survive reloads.
+
+The starter catalog contains 12 presets across rock, pop, funk, jazz, blues, disco, hip-hop, electronic, reggae, Latin-inspired, and punk styles in 3/4, 4/4, and 6/8. Selected human-played presets adapt the CC BY 4.0 Groove MIDI Dataset; their source IDs are stored with the preset data. Other starter patterns are locally authored.
 
 ## Modes
 
