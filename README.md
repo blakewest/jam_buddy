@@ -1,6 +1,6 @@
 # Jam Partner experiments
 
-Two local browser experiments for TypeSafe-powered musical interaction. No keyboard or microphone is needed.
+Local browser experiments for TypeSafe-powered musical interaction, with a groove audition library. No keyboard or microphone is needed.
 
 ## Run
 
@@ -14,11 +14,12 @@ npm start
 Open either page in Chrome:
 
 - http://127.0.0.1:3210/ — real-time MIDI fixture and start/stop timing test.
-- http://127.0.0.1:3210/pattern.html — stateful one-to-four-bar drum pattern builder.
+- http://127.0.0.1:3210/pattern.html — stateful one-to-eight-bar drum pattern builder.
+- http://127.0.0.1:3210/presets.html — audition 50 original source-audio clips and mark favorites locally.
 
 Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, then start the server. The key never reaches the browser. TypeScript and Node type definitions are development dependencies; there are no runtime npm dependencies.
 
-`npm start` builds the TypeScript source and copies static assets into `dist/`. To build or type-check separately:
+`npm start` builds the TypeScript source and copies static assets into `dist/`. You can also check, build, and run separately:
 
 ```sh
 npm run typecheck
@@ -34,25 +35,29 @@ node --env-file=.env dist/server.js
 - `src/services/` contains the local HTTP server and TypeSafe proxy.
 - `test/` contains the automated tests.
 
-The root `server.ts` only starts the HTTP service. All source and tests use `.ts`; strict type-checking runs during the build. Imports use `.js` paths to match the compiled output. Generated `dist/` files are ignored by Git.
+The root `server.ts` only starts the HTTP service.
 
 Use wired headphones and keep the tab visible. Hiding the tab ends the run so browser suspension does not contaminate timing results.
 
 ## Pattern builder
 
-The pattern builder starts with an empty 16-step bar at 120 BPM and can expand to four bars. Type a request such as `I want a 4 bar phrase`, `Give me a simple backbeat`, or `Add a snare on beat 2 of bar 4`. Jev receives the current pattern, the request, and the newest eight history entries.
+The pattern builder starts with an empty 4/4 bar at 120 BPM and can expand to eight bars. Type a request such as `Give me a simple backbeat`, `Load a laid-back hip-hop beat`, or `Add a snare on beat 2`. Loading a preset replaces the current beat and sets its source tempo. The transport can then change it from 40–240 BPM.
 
-Each request starts with a planning call that chooses the phrase length, identifies the involved instruments, and estimates zero through eight atomic note operations. The app then generates edit questions only for those instruments and runs at most the estimated number of sequential passes. Each pass sees the pattern produced by the prior pass and applies at most one change. A no-edit response stops the sequence early. Whole-pattern reset requires at least 90% confidence. Collisions are rejected and shown in the inspector. While the loop plays, the final accepted pattern begins at the next phrase boundary.
+Every request first passes through one small TypeSafe routing question. The deterministic request tree separates editing, preset loading, clearing, shuffling, kit changes, undo, and unsupported requests. Clearing executes locally. Shuffling excludes the current preset and retains the previous search filters for requests like `No, something else`. Unsupported guidance comes from the registered capabilities.
 
-The current request is authoritative. Recent history is included only to resolve references such as “that” or “again,” so an older request cannot act as a competing instruction. Jev sees the loop grouped into kick, snare, closed-hat, and open-hat parts plus reference definitions for eighth notes, four-on-the-floor, and a backbeat. One request can make at most eight note changes; the raw inspector records every pass while the visible history keeps one row for the request.
+Relative velocity edits first use one structured interpretation call for operation, instrument, beats, bars, and subdivisions. Code then changes every matching note once. Other edits use a planning call for phrase length, involved instruments, and zero through eight atomic operations. Large patterns narrow by instrument/bar and then target note or addition before detailed questions are built. Each atomic pass sees the preceding result; a no-edit response stops early. Every API call is checked against question, choice, and context-size budgets. Collisions are rejected and shown in the inspector. While the loop plays, the final accepted pattern begins at the next phrase boundary; clearing stops it immediately.
 
-Choose Acoustic, 808, or TR-505 with the Kit selector, or ask “Use the 808,” “Switch to the 505,” “Back to acoustic,” or “Swap the kit for something more modern.” The selector makes no API call. Kit swaps preserve every note and velocity, load all required samples first, and take effect at the next phrase boundary during playback. Swapping while stopped stays stopped. The saved kit survives reload; old sessions default to Acoustic. Clear pattern keeps the kit; New session restores Acoustic.
+The current request is authoritative. The structured velocity interpreter sees no old history. The atomic planner includes recent history only to resolve references such as “that” or “again.” Jev sees nine drum lanes; source pitch articulations remain in playback state. Atomic requests can make at most eight changes, while structured velocity edits can affect all matching notes. The raw inspector records each step and visible history keeps one row per request.
 
-Every text request starts at `REQUEST_TREE.root` in `src/core/pattern/request-tree.ts`. Its children are `edit_pattern`, `change_kit`, `undo`, and `unsupported`; each child registers its own execution function. `REQUEST_QUESTIONS` in `src/ai/request-questions.ts` contains only the AI question builders used by decision branches. Only the editing branch uses the existing note planner and atomic edit loop. The kit branch gets the current kit and bounded history, without note data. Generic “more modern/electronic” from Acoustic favors 808 as a demo preference. Explicit unavailable kits, effects, individual sound replacement, and requests mixing kit and note changes return guidance without partial changes. Stop and New session cancel in-flight requests. The inspector records routing choices and includes their API usage.
+Patterns use 960 ticks per quarter note, preserve human timing and MIDI velocity (1–127), and support straight eighths, straight sixteenths, eighth-note triplets, and sixteenth-note triplets for editing. Playback uses a CC0 Virtuosity Drums subset with articulation-specific samples and velocity layers, loaded only as needed. Some source pitches use nearby articulations, documented in the kit manifest. Closing/pedal hats choke open hats. Pattern state and raw request/response history remain in browser IndexedDB and survive reloads.
 
-Ask “Undo that” or click Undo to reverse the last completed change. All edit passes from one request form one undo unit; kit swaps and Clear pattern are also undoable. The last 20 units survive reloads. Failed requests and no-ops do not consume a slot, and undo during playback takes effect at the next phrase boundary. New session clears undo history. Changes made before undo was added have no saved snapshot; redo is not supported.
+The active catalog is exactly the ten approved source grooves plus the locally authored Simple Backbeat, all in 4/4. Jev chooses among matching presets using genre, feel, meter, tags, source tempo, and descriptions. Legacy demo presets are not selectable. Imported phrases retain up to eight source bars; audition clips play original audio, while the beat maker renders the matching MIDI with its own kit, so their timbres differ.
 
-The page uses kick, snare, closed hi-hat, and open hi-hat sounds. Acoustic uses the public-domain Open Source Drumkit with five recorded velocity layers. The auditioned 808 and TR-505 each use one sample per instrument and five gain levels; these levels and kit balance are engineering choices. The 808 assets are AAC-derived preview samples decoded to WAV, not original lossless recordings. See `src/frontend/assets/ATTRIBUTION.md` for sources. Closed hats choke open hats. Pattern state and raw request/response history remain in browser IndexedDB and survive reloads. `Clear pattern` is local and makes no API call; `New session` clears the pattern and its history. Input remains text-based; hold-to-talk is planned separately.
+The approved shortlist is recorded in `CURATED_GROOVE_IDS` in `src/core/pattern/audition-grooves.ts`. Later Keep/Reject changes on the audition page are local browser preferences, not automatic changes to the active catalog. The bundled previews total about 140 MB but load only when played; the articulation kit totals about 23 MB. Asset sources and licenses are in `src/frontend/assets/ATTRIBUTION.md`.
+
+The kit selector or requests like `Use the 808` switch between Acoustic, 808, and TR-505 without changing notes. The electronic packs contain kick, snare, and two hat voices; other lanes retain acoustic sounds. Electronic voices use gain-scaled single samples rather than acoustic articulation/velocity layers. Undo restores the last accepted request as one unit, including its kit, tempo, and preset context. Stop and New session cancel pending requests and sample loads.
+
+To regenerate imported MIDI modules, first run `npm run build`, then `node tools/build-gmd-presets.mjs SELECTED_MIDI_DIR CURATED_MIDI_DIR` with the source MIDI directories. The generated files are TypeScript; build again afterward.
 
 ## Modes
 

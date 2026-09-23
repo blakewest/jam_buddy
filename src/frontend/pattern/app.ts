@@ -9,12 +9,16 @@ import { KITS, getKit } from "../../core/pattern/kits.js";
 import { recordUndoUnit, undoLastChange } from "../../core/pattern/undo.js";
 import { runPatternCommand, changeKit } from "../../core/pattern/request-tree.js";
 import { createIdleSubmit } from "../shared/idle-submit.js";
+import { runPatternTree } from "../../core/pattern/request-runner.js";
+import { stateForJev } from "../../core/pattern/state.js";
+import { ticksPerBar } from "../../core/pattern/musical-time.js";
 
 type RequestLog = Partial<CommandResult> & { request: string; local?: boolean };
-interface SavedSession { state: PatternState; logs: RequestLog[] }
+interface SavedSession { state: PatternState; logs: RequestLog[]; tempo_bpm?: number }
 type Decide = <T>(url: string, payload: unknown) => Promise<T>;
 
 interface Elements {
+  "tempo": HTMLInputElement;
   "play": HTMLButtonElement;
   "stop": HTMLButtonElement;
   "phrase-bars": HTMLElement;
@@ -50,7 +54,7 @@ function $<K extends keyof Elements>(id: K): Elements[K] {
   if (!element) throw new Error(`Missing element: ${id}`);
   return element as Elements[K];
 }
-const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat" };
+const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
 let state = createPatternState();
 let pendingState: PatternState | null = null;
 let logs: RequestLog[] = [];
@@ -126,41 +130,26 @@ function renderGrid() {
   const pattern = displayedState().pattern;
   const container = $("pattern-grid");
   container.replaceChildren();
-  const stepNames = ["1", "e", "&", "a", "2", "e", "&", "a", "3", "e", "&", "a", "4", "e", "&", "a"];
+  const barTicks = ticksPerBar(pattern.meter);
   for (let bar = 1; bar <= pattern.bars; bar++) {
     const section = document.createElement("section");
     section.className = "pattern-bar";
     const heading = document.createElement("h3");
     heading.textContent = `Bar ${bar}`;
-    const grid = document.createElement("div");
-    grid.className = "pattern-grid";
-    const corner = document.createElement("div");
-    corner.className = "grid-cell grid-label step-label";
-    corner.textContent = "Instrument";
-    grid.append(corner);
-    stepNames.forEach((name, index) => {
-      const cell = document.createElement("div");
-      cell.className = `grid-cell step-label${index % 4 === 0 ? " downbeat" : ""}`;
-      cell.textContent = name;
-      grid.append(cell);
-    });
+    const grid = document.createElement("div"); grid.className = "pattern-grid";
     for (const instrument of INSTRUMENTS) {
-      const label = document.createElement("div");
-      label.className = "grid-cell grid-label";
-      label.textContent = labels[instrument];
-      grid.append(label);
-      for (let slot = 1; slot <= 16; slot++) {
-        const cell = document.createElement("div");
-        cell.className = `grid-cell${(slot - 1) % 4 === 0 ? " beat" : ""}`;
-        const note = pattern.notes.find(item => item.instrument === instrument && item.bar === bar && item.slot === slot);
-        if (note) {
-          const marker = document.createElement("span");
-          marker.className = `note-dot ${instrument} velocity-${note.velocity_layer}`;
-          marker.title = `${labels[instrument]}, bar ${bar}, slot ${slot}, velocity layer ${note.velocity_layer}`;
-          cell.append(marker);
-        }
-        grid.append(cell);
+      const row = document.createElement("div"); row.className = "pattern-lane";
+      const label = document.createElement("div"); label.className = "grid-label"; label.textContent = labels[instrument];
+      const track = document.createElement("div"); track.className = "lane-track";
+      for (let beat = 0; beat <= pattern.meter.numerator; beat++) {
+        const line = document.createElement("i"); line.className = "beat-line"; line.style.left = `${beat / pattern.meter.numerator * 100}%`; track.append(line);
       }
+      for (const note of pattern.notes.filter(item => item.instrument === instrument && item.bar === bar)) {
+        const marker = document.createElement("span"); marker.className = `note-dot ${instrument}`;
+        marker.style.left = `${note.tick / barTicks * 100}%`; marker.style.opacity = `${0.45 + note.velocity / 230}`; marker.style.transform = `translate(-50%, -50%) scale(${0.75 + note.velocity / 300})`;
+        marker.title = `${labels[instrument]}, bar ${bar}, tick ${note.tick}, velocity ${note.velocity}`; track.append(marker);
+      }
+      row.append(label, track); grid.append(row);
     }
     section.append(heading, grid);
     container.append(section);
@@ -168,7 +157,8 @@ function renderGrid() {
   $("note-count").textContent = `${pattern.notes.length} note${pattern.notes.length === 1 ? "" : "s"}`;
   $("pattern-heading").textContent = `${pendingState ? "Next-phrase" : pattern.bars === 1 ? "One-bar" : `${pattern.bars}-bar`} pattern`;
   $("phrase-bars").textContent = `${pattern.bars} ${pattern.bars === 1 ? "bar" : "bars"}`;
-  $("phrase-steps").textContent = `${pattern.bars * 16} steps`;
+  $("phrase-steps").textContent = `${pattern.meter.numerator}/${pattern.meter.denominator}`;
+  $("tempo").value = String(displayedState().tempo_bpm);
 }
 
 function renderHistory() {
@@ -202,18 +192,18 @@ function renderHistory() {
 
 function describeChange(change: CommandResult["result"]["applied_changes"][number]) {
   if (change.kind === "undo") return `Undid: ${change.request}`;
-  if (change.kind === "kit") return `Changed kit: ${getKit(change.before_kit).name} → ${getKit(change.after_kit).name}`;
+  if (change.kind === "kit") return `Changed kit: ${getKit(change.before_kit!).name} → ${getKit(change.after_kit!).name}`;
   if (change.kind === "reset") return "Cleared the entire pattern";
   if (change.kind === "resize") return `Changed phrase from ${change.before_bars} to ${change.after_bars} bars`;
   if (change.kind === "remove") return `Removed ${labels[change.before?.instrument ?? ""] ?? change.note_id}`;
   if (change.kind === "add") {
     const note = change.after ?? change.proposed;
-    return `Added ${labels[note?.instrument ?? ""] ?? "note"} in bar ${note?.bar ?? 1} at slot ${note?.slot ?? "?"}, layer ${note?.velocity_layer ?? "?"}`;
+    return `Added ${labels[note?.instrument ?? ""] ?? "note"} in bar ${note?.bar ?? 1} at tick ${note?.tick ?? "?"}, velocity ${note?.velocity ?? "?"}`;
   }
   if (change.kind === "modify") {
     const before = change.before;
     const after = change.after ?? change.proposed;
-    return `Changed ${labels[before?.instrument ?? ""] ?? before?.instrument ?? change.note_id} in bar ${before?.bar ?? 1} at slot ${before?.slot ?? "?"}, layer ${before?.velocity_layer ?? "?"} → ${labels[after?.instrument ?? ""] ?? after?.instrument} in bar ${after?.bar ?? 1} at slot ${after?.slot ?? "?"}, layer ${after?.velocity_layer ?? "?"}`;
+    return `Changed ${labels[before?.instrument ?? ""] ?? before?.instrument ?? change.note_id} in bar ${before?.bar ?? 1} at tick ${before?.tick ?? "?"}, velocity ${before?.velocity ?? "?"} → ${labels[after?.instrument ?? ""] ?? after?.instrument} in bar ${after?.bar ?? 1} at tick ${after?.tick ?? "?"}, velocity ${after?.velocity ?? "?"}`;
   }
   return change.source ?? "Change";
 }
@@ -252,6 +242,7 @@ function renderInspector(log: RequestLog | null | undefined) {
 function updateControls() {
   const pending = pendingState !== null;
   const locked = busy || pending || startingPlayback;
+  $("tempo").disabled = locked;
   $("undo").disabled = locked || state.undo_history.length === 0;
   $("kit").disabled = locked;
   document.querySelectorAll<HTMLButtonElement>(".examples button").forEach(button => { button.disabled = locked; });
@@ -279,7 +270,7 @@ async function startPlayback(pattern: Pattern) {
   $("playback-status").textContent = "Loading drum kit…";
   updateControls();
   try {
-    const started = await player.start(pattern);
+    const started = await player.start(pattern, state.tempo_bpm);
     if (started && version === operationVersion) $("playback-status").textContent = "Playing";
   } catch (error) {
     if (version === operationVersion) $("playback-status").textContent = (error instanceof Error ? error.message : String(error));
@@ -290,10 +281,10 @@ async function startPlayback(pattern: Pattern) {
   }
 }
 
-function commitOrStage(nextState: PatternState, autoPlay = true) {
+async function commitOrStage(nextState: PatternState, autoPlay = true) {
   if (player.isPlaying()) {
     pendingState = nextState;
-    player.stage(nextState.pattern);
+    await player.stage(nextState.pattern, nextState.tempo_bpm);
     $("request-status").textContent = "Accepted changes are waiting for the next phrase.";
   } else {
     state = nextState;
@@ -327,7 +318,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
     if (version !== operationVersion) return;
     if (completed.result.applied_changes.length) {
       $("request-status").textContent = "Preparing sounds…";
-      await player.load(completed.state.pattern.kit_id);
+      await player.load(completed.state.pattern);
       if (version !== operationVersion) return;
     }
     completed = recordUndoUnit(state, completed, request);
@@ -337,7 +328,13 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
     const tokens = Number(completed.usage?.input_tokens ?? 0) + Number(completed.usage?.output_tokens ?? 0);
     $("request-meta").textContent = local ? "Local change · No API call" : `${Math.round(completed.latency_ms)} ms · ${completed.question_count} questions · ${completed.passes.length} edit passes · ${completed.model}${tokens ? ` · ${tokens} tokens` : ""}`;
     if (!local) $("request").value = "";
-    if (completed.result.applied_changes.length) commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo"));
+    if (completed.result.applied_changes.length) {
+      if (completed.result.applied_changes.some(change => change.kind === "reset")) {
+        player.stop();
+        $("playback-status").textContent = "Stopped";
+      }
+      await commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo"));
+    }
     else {
       state = completed.state;
       $("request-status").textContent = completed.message ?? "No changes needed.";
@@ -363,6 +360,17 @@ $("request-form").addEventListener("submit", event => {
   void performRequest(request, decide => runPatternCommand({
     initialState: state,
     request,
+    grooveRequest: route => runPatternTree({
+      state, request, route: async () => ({ route }),
+      searchPresets: request => decide("/api/preset-search", { request }),
+      selectPreset: (request, candidate_ids) => decide("/api/preset-select", { request, candidate_ids }),
+      interpretEdit: () => decide("/api/pattern-edit-intent", { state: stateForJev(state, request) }),
+      runEdit: () => runPatternRequest({
+        initialState: state, request,
+        estimateOperations: sentState => decide("/api/pattern-plan", { state: sentState }),
+        decide: (sentState, _pass, plan) => decide("/api/pattern-decision", { state: sentState, instruments: plan.relevant_instruments }),
+      }),
+    }),
     decideNode: (nodeId, sentState) => {
       $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : "Jev is selecting a kit…";
       return decide("/api/request-decision", { node_id: nodeId, state: sentState });
@@ -391,6 +399,14 @@ $("kit").addEventListener("change", event => {
   const kitId = $("kit").value;
   const request = `Use ${getKit(kitId).name} (manual)`;
   void performRequest(request, async () => changeKit(state, kitId, request), true);
+});
+
+$("tempo").addEventListener("change", () => {
+  const value = Math.round(Number($("tempo").value));
+  state = { ...state, tempo_bpm: Math.min(240, Math.max(40, Number.isFinite(value) ? value : 120)) };
+  player.setTempo(state.tempo_bpm);
+  render();
+  persist();
 });
 
 $("request").addEventListener("keydown", event => {
@@ -472,7 +488,7 @@ window.addEventListener("pagehide", cancelWork);
 
 try {
   const saved = await storage();
-  if (saved?.state) state = createPatternState(saved.state);
+  if (saved?.state) state = createPatternState({ ...saved.state, tempo_bpm: saved.state.tempo_bpm ?? saved.tempo_bpm });
   if (Array.isArray(saved?.logs)) logs = saved.logs.slice(-50);
   if (logs.length) renderInspector(logs.at(-1));
 } catch { $("request-status").textContent = "Browser storage is unavailable; the demo still works for this tab."; }

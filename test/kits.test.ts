@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createPatternState, resizePattern, applyPatternAnswers } from "../src/core/pattern/state.js";
 
-const notes: PatternNote[] = [{ id: "note_1", instrument: "kick", bar: 1, slot: 1, velocity_layer: 4 }];
+const notes: PatternNote[] = [{ id: "note_1", instrument: "kick", bar: 1, tick: 0, velocity: 96 }];
 
 test("kit selection survives saved-state migration, resize and note edits", () => {
   const state = createPatternState({ pattern: { bars: 1, notes, kit_id: "tr_808" } });

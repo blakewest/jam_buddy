@@ -20,5 +20,5 @@ export function sampleForHit(kitId: string, instrument: Instrument, layer: numbe
   if (!Object.hasOwn(instrumentGains, instrument) || !Number.isInteger(layer) || layer < 1 || layer > 5) throw new Error("Invalid drum hit.");
   return kitId === "acoustic"
     ? { url: `/assets/osdk/${instrument}/layer-${layer}.wav`, gain: 1 }
-    : { url: `/assets/${kitId}/${instrument}.wav`, gain: instrumentGains[instrument] * electronicGains[layer - 1] };
+    : { url: `/assets/${kitId}/${instrument}.wav`, gain: instrumentGains[instrument as keyof typeof instrumentGains] * electronicGains[layer - 1] };
 }

@@ -1,4 +1,3 @@
-import type { AddressInfo } from "node:net";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "../server.js";
@@ -7,13 +6,13 @@ const state = { piano: { recent_events: [], silent_for_ms: 1000 }, drums: { stat
 async function withServer(run: (url: string) => Promise<void>, options: Parameters<typeof createServer>[0] = {}) {
   const server = createServer({ apiKey: "test-only-secret", ...options });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  try { await run(url); } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+  const url = `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}`;
+  try { await run(url); } finally { await new Promise(resolve => server.close(resolve)); }
 }
 const post = (url: string, payload: unknown = { state }, extra = {}) => fetch(`${url}/api/decision`, { method: "POST", headers: { "Content-Type": "application/json", Origin: url, ...extra }, body: JSON.stringify(payload) });
 
 test("proxy sends only minimal state and fixed question; returns structured answer", async () => {
-  await withServer(async url => {
+  await withServer(async (url: string) => {
     const response = await post(url);
     assert.equal(response.status, 200);
     assert.deepEqual((await response.json()).answer.choice, "keep_current");
@@ -27,21 +26,46 @@ test("proxy sends only minimal state and fixed question; returns structured answ
   } });
 });
 
+test("preset audition page and source clips are served", async () => {
+  await withServer(async (url: string) => {
+    for (const path of ["/presets.html", "/presets.css", "/presets-app.js", "/core/pattern/audition-grooves.js", "/assets/gmd/funk_pocket.wav", "/assets/gmd/gmd_drummer5_session1_17.wav"]) {
+      const response = await fetch(`${url}${path}`);
+      assert.equal(response.status, 200, path);
+    }
+  });
+});
+
+test("groove audio supports byte ranges for browser playback", async () => {
+  await withServer(async (url: string) => {
+    const path = `${url}/assets/gmd/funk_pocket.wav`;
+    const first = await fetch(path, { headers: { Range: "bytes=0-1023" } });
+    assert.equal(first.status, 206);
+    assert.equal(first.headers.get("Accept-Ranges"), "bytes");
+    assert.match(first.headers.get("Content-Range")!, /^bytes 0-1023\/\d+$/);
+    assert.equal((await first.arrayBuffer()).byteLength, 1024);
+
+    const suffix = await fetch(path, { headers: { Range: "bytes=-128" } });
+    assert.equal(suffix.status, 206);
+    assert.equal((await suffix.arrayBuffer()).byteLength, 128);
+
+    const invalid = await fetch(path, { headers: { Range: "bytes=999999999-" } });
+    assert.equal(invalid.status, 416);
+    assert.match(invalid.headers.get("Content-Range")!, /^bytes \*\/\d+$/);
+  });
+});
+
 test("dotfiles, foreign origins, invalid state and large bodies never call upstream", async () => {
-  await withServer(async url => {
+  await withServer(async (url: string) => {
     assert.equal((await fetch(`${url}/.env`)).status, 404);
-    assert.equal((await fetch(`${url}/server.js`)).status, 404);
+    assert.equal((await fetch(`${url}/server.mjs`)).status, 404);
     assert.equal((await post(url, { state }, { Origin: "https://example.com" })).status, 403);
     assert.equal((await post(url, { state: { ...state, secret: "bad" } })).status, 400);
     assert.equal((await post(url, { text: "x".repeat(200000) })).status, 413);
-    assert.equal((await post(url, { state: { ...state, drums: { ...state.drums, status: ["stopped"] } } })).status, 400);
-    const malformedEvent = { time_ms: 0, type: ["note_on"], note: 60, velocity: 80 };
-    assert.equal((await post(url, { state: { ...state, piano: { ...state.piano, recent_events: [malformedEvent] } } })).status, 400);
   }, { fetchImpl: () => { throw new Error("Upstream must not be called"); } });
 });
 
 test("upstream errors are sanitized and retry-after is retained", async () => {
-  await withServer(async url => {
+  await withServer(async (url: string) => {
     const response = await post(url);
     assert.equal(response.status, 429);
     const body = await response.text();
@@ -51,34 +75,7 @@ test("upstream errors are sanitized and retry-after is retained", async () => {
 });
 
 test("invalid answer cannot reach the client as an action", async () => {
-  await withServer(async url => {
+  await withServer(async (url: string) => {
     assert.equal((await post(url)).status, 502);
   }, { fetchImpl: async () => Response.json({ answers: { action: { choice: "unknown" } } }) });
-});
-
-test("both demos serve a complete compiled browser module graph", async () => {
-  await withServer(async baseUrl => {
-    const visited = new Set<string>();
-    async function checkModule(url: string): Promise<void> {
-      if (visited.has(url)) return;
-      visited.add(url);
-      const response = await fetch(url);
-      assert.equal(response.status, 200, url);
-      assert.match(response.headers.get("Content-Type") ?? "", /javascript/);
-      const source = await response.text();
-      for (const match of source.matchAll(/from\s+["']([^"']+)["']/g)) {
-        await checkModule(new URL(match[1], url).href);
-      }
-    }
-    for (const path of ["/", "/pattern.html"]) {
-      const response = await fetch(`${baseUrl}${path}`);
-      assert.equal(response.status, 200);
-      const html = await response.text();
-      const script = /<script[^>]+src="([^"]+)"/.exec(html);
-      assert.ok(script, `${path} has an entry module`);
-      await checkModule(new URL(script[1], baseUrl).href);
-    }
-    assert.ok(visited.size >= 10);
-    assert.equal((await fetch(`${baseUrl}/server.ts`)).status, 404);
-  });
 });

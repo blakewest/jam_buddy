@@ -4,7 +4,7 @@ import { getKit, KITS } from "./kits.js";
 import type { Candidate, HistoryEntry, PatternChange, PatternState } from "./state.js";
 import type { PatternPass, PatternPlan, PatternRunResult } from "./runner.js";
 
-export type RequestBranchId = "edit_pattern" | "change_kit" | "undo" | "unsupported";
+export type RequestBranchId = "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
 export type RequestQuestionId = "root" | "change_kit";
 export type NodeAnswer = { selection?: { type: "choice"; choice: string } };
 export type NodeOutcome =
@@ -27,12 +27,14 @@ type CommandOptions = {
   request: string;
   decideNode: (questionId: RequestQuestionId, state: RequestContext) => Promise<NodeDecision>;
   editPattern?: () => Promise<PatternRunResult>;
+  grooveRequest?: (route: RootRoute) => Promise<import("./request-runner.js").TreeResult>;
 };
 type BranchContext = {
   state: PatternState;
   request: string;
   ask: (questionId: RequestQuestionId) => Promise<NodeOutcome>;
   editPattern: CommandOptions["editPattern"];
+  grooveRequest: CommandOptions["grooveRequest"];
 };
 export type RouteDecision = NodeDecision & {
   node_id: RequestQuestionId;
@@ -50,6 +52,9 @@ export type CommandResult = {
     reset_probability?: number;
     planned_operations?: number;
     pass_count?: number;
+    message?: string | null;
+    tempo_bpm?: number;
+    preset_id?: string;
   };
   plan: PatternPlan | null;
   passes: PatternPass[];
@@ -74,6 +79,9 @@ export const REQUEST_TREE = {
         description: "switch the whole drum kit",
         execute: changeKitBranch,
       },
+      load_preset: { description: "load a complete beat preset by genre or style", execute: (context: BranchContext) => grooveBranch(context, "load_preset") },
+      shuffle_preset: { description: "shuffle to a different beat, including 'no, something else'", execute: (context: BranchContext) => grooveBranch(context, "shuffle_preset") },
+      clear_pattern: { description: "clear every note and start with an empty beat", execute: (context: BranchContext) => grooveBranch(context, "clear_pattern") },
       undo: {
         description: "undo the most recent completed change as one unit",
         execute: undoBranch,
@@ -107,9 +115,31 @@ export function nodeOutcome(questionId: RequestQuestionId, answers: NodeAnswer):
   return { handler: "change_kit", selection: answer.choice };
 }
 
-function editPatternBranch({ editPattern }: BranchContext): Promise<PatternRunResult> {
+function editPatternBranch(context: BranchContext): Promise<PatternRunResult | CommandResult> {
+  if (context.grooveRequest) return grooveBranch(context, "edit_pattern");
+  const { editPattern } = context;
   if (!editPattern) throw new Error("Pattern editing is unavailable.");
   return editPattern();
+}
+
+async function grooveBranch(context: BranchContext, category: RequestBranchId): Promise<CommandResult> {
+  if (!context.grooveRequest) throw new Error("Groove tools are unavailable.");
+  const completed = await context.grooveRequest(resolveRoot(category));
+  return {
+    ...completed,
+    result: { candidates: [], rejected_changes: [], ignored_changes: [], history_entry: { request: context.request, applied_changes: [], rejected_changes: [] }, ...completed.result },
+    passes: completed.passes ?? [], plan: completed.plan ?? null,
+    message: completed.result.message,
+  };
+}
+
+export type RootRoute = { category: RequestBranchId; next_node: string | null; message: string | null };
+const nextNodes: Record<RequestBranchId, string | null> = { edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
+export const REQUEST_CATEGORIES = Object.freeze(Object.fromEntries(Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { description: branch.description, next_node: nextNodes[id as RequestBranchId] }])));
+export const unsupportedMessage = unsupportedGuidance;
+export function resolveRoot(category: string): RootRoute {
+  if (!Object.hasOwn(REQUEST_CATEGORIES, category)) throw new Error("Invalid request category.");
+  return { category: category as RequestBranchId, next_node: REQUEST_CATEGORIES[category].next_node, message: category === "unsupported" ? unsupportedGuidance() : null };
 }
 
 async function changeKitBranch(context: BranchContext): Promise<CommandResult> {
@@ -144,7 +174,7 @@ export function changeKit(initialState: PatternState, kitId: string, request: st
   };
 }
 
-export async function runPatternCommand({ initialState, request, decideNode, editPattern }: CommandOptions): Promise<CommandResult> {
+export async function runPatternCommand({ initialState, request, decideNode, editPattern, grooveRequest }: CommandOptions): Promise<CommandResult> {
   const state = createPatternState(initialState);
   const sentState = { request, kit_id: state.pattern.kit_id, recent_history: state.recent_history };
   const routing: RouteDecision[] = [];
@@ -158,7 +188,7 @@ export async function runPatternCommand({ initialState, request, decideNode, edi
   const route = await ask(REQUEST_TREE.root.id);
   if (!("next_node" in route)) throw new Error("Invalid root decision.");
   const branch = REQUEST_TREE.root.children[route.next_node];
-  const completed = await branch.execute({ state, request, ask, editPattern });
+  const completed = await branch.execute({ state, request, ask, editPattern, grooveRequest });
 
   const usage: Record<string, number> = { ...completed.usage };
   let latencyMs = completed.latency_ms ?? 0;

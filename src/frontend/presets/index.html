@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Preset Audition</title>
+  <link rel="stylesheet" href="/presets.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">Jam Partner</p>
+        <h1>Raw groove audition</h1>
+        <p>Listen to 50 original GMD performances. Previews are capped at eight bars.</p>
+      </div>
+      <a href="/pattern.html">Back to drum machine</a>
+    </header>
+    <div class="filters">
+      <label for="style-filter">Style</label>
+      <select id="style-filter"><option value="">All styles</option></select>
+      <span id="result-count"></span>
+    </div>
+    <section id="preset-list" aria-label="Groove candidates"></section>
+  </main>
+  <script type="module" src="/presets-app.js"></script>
+</body>
+</html>

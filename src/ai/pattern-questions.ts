@@ -1,6 +1,7 @@
-import { INSTRUMENTS, POSITIONS, type Instrument, type PatternJevState, type Position } from "../core/pattern/state.js";
-type PartNote = PatternJevState["pattern"]["parts"][Instrument][number] & { instrument: Instrument };
-type Question = { type: "choice" | "noul"; instructions: unknown; criteria: Record<string, unknown> };
+import type { PatternJevState, Instrument } from "../core/pattern/state.js";
+import type { Questions } from "./question-types.js";
+import { INSTRUMENTS } from "../core/pattern/state.js";
+import { editPositions } from "../core/pattern/musical-time.js";
 
 const inspect = ["request", "pattern.bars", "pattern.parts", "music_reference", "recent_history"];
 const context = "Make the next single-note edit that moves `pattern` closer to the current `request`. If the pattern already fulfills the request, choose no edits. The application will send another pass with the updated pattern when more work remains. The current request is authoritative; use `recent_history` only to resolve references such as 'that' or 'again'.";
@@ -24,6 +25,11 @@ const instrumentCriteria = {
   snare: { sound: "Snare drum", role: "Backbeats, accents, and sharp responses" },
   closed_hat: { sound: "Closed hi-hat", role: "Short subdivision pulse and timekeeping" },
   open_hat: { sound: "Open hi-hat", role: "Longer bright accent or lift" },
+  ride: { sound: "Ride cymbal", role: "Sustained cymbal pulse and timekeeping" },
+  crash: { sound: "Crash cymbal", role: "Strong phrase-opening accent" },
+  high_tom: { sound: "High tom", role: "High-pitched fill and melodic movement" },
+  mid_tom: { sound: "Mid tom", role: "Mid-range fill and melodic movement" },
+  floor_tom: { sound: "Floor tom", role: "Low fill, weight, and rolling movement" },
 };
 
 export const PLANNING_QUESTIONS = {
@@ -37,10 +43,7 @@ export const PLANNING_QUESTIONS = {
     },
     criteria: {
       keep_current: { meaning: "Keep the current number of bars" },
-      bars_1: { meaning: "Resize the phrase to exactly one bar" },
-      bars_2: { meaning: "Resize the phrase to exactly two bars" },
-      bars_3: { meaning: "Resize the phrase to exactly three bars" },
-      bars_4: { meaning: "Resize the phrase to exactly four bars" },
+      ...Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`bars_${index + 1}`, { meaning: `Resize the phrase to exactly ${index + 1} ${index ? "bars" : "bar"}` }])),
     },
   },
   ...Object.fromEntries(INSTRUMENTS.map(instrument => [`involves_${instrument}`, {
@@ -54,74 +57,57 @@ export const PLANNING_QUESTIONS = {
       true: { meaning: `${instrumentCriteria[instrument].sound} notes are involved in the requested change` },
       false: { meaning: `${instrumentCriteria[instrument].sound} notes are unrelated to the requested change` },
     },
-  }])) as unknown as Record<`involves_${Instrument}`, Question>,
+  }])),
 };
 const velocityCriteria = {
-  layer_1: { strength: "Very soft", midi_range: "1-25" },
-  layer_2: { strength: "Soft", midi_range: "26-50" },
-  layer_3: { strength: "Medium", midi_range: "51-76" },
-  layer_4: { strength: "Strong", midi_range: "77-101" },
-  layer_5: { strength: "Very strong", midi_range: "102-127" },
+  velocity_1: { strength: "Very soft", midi_velocity: 16 },
+  velocity_2: { strength: "Soft", midi_velocity: 40 },
+  velocity_3: { strength: "Medium", midi_velocity: 64 },
+  velocity_4: { strength: "Strong", midi_velocity: 96 },
+  velocity_5: { strength: "Very strong", midi_velocity: 120 },
 };
-const positionDetails = [
-  ["beat_1", "Beat 1", "eighth-note grid"],
-  ["beat_1_e", "Beat 1 e", "sixteenth-note-only; not on the eighth-note grid"],
-  ["beat_1_and", "Beat 1-and", "eighth-note grid"],
-  ["beat_1_a", "Beat 1 a", "sixteenth-note-only; not on the eighth-note grid"],
-  ["beat_2", "Beat 2", "eighth-note grid"],
-  ["beat_2_e", "Beat 2 e", "sixteenth-note-only; not on the eighth-note grid"],
-  ["beat_2_and", "Beat 2-and", "eighth-note grid"],
-  ["beat_2_a", "Beat 2 a", "sixteenth-note-only; not on the eighth-note grid"],
-  ["beat_3", "Beat 3", "eighth-note grid"],
-  ["beat_3_e", "Beat 3 e", "sixteenth-note-only; not on the eighth-note grid"],
-  ["beat_3_and", "Beat 3-and", "eighth-note grid"],
-  ["beat_3_a", "Beat 3 a", "sixteenth-note-only; not on the eighth-note grid"],
-  ["beat_4", "Beat 4", "eighth-note grid"],
-  ["beat_4_e", "Beat 4 e", "sixteenth-note-only; not on the eighth-note grid"],
-  ["beat_4_and", "Beat 4-and", "eighth-note grid"],
-  ["beat_4_a", "Beat 4 a", "sixteenth-note-only; not on the eighth-note grid"],
-];
-const positionCriteria = Object.fromEntries(positionDetails.map(([key, position, grid]) => [key, { position, grid }]));
 const timingCriteria = {
-  earlier_4: { direction: "earlier", sixteenth_note_steps: 4 },
-  earlier_3: { direction: "earlier", sixteenth_note_steps: 3 },
-  earlier_2: { direction: "earlier", sixteenth_note_steps: 2 },
-  earlier_1: { direction: "earlier", sixteenth_note_steps: 1 },
+  earlier_eighth: { direction: "earlier", interval: "one straight eighth note" },
+  earlier_sixteenth: { direction: "earlier", interval: "one straight sixteenth note" },
+  earlier_eighth_triplet: { direction: "earlier", interval: "one eighth-note triplet step" },
+  earlier_sixteenth_triplet: { direction: "earlier", interval: "one sixteenth-note triplet step" },
   no_change: { direction: "unchanged", sixteenth_note_steps: 0 },
-  later_1: { direction: "later", sixteenth_note_steps: 1 },
-  later_2: { direction: "later", sixteenth_note_steps: 2 },
-  later_3: { direction: "later", sixteenth_note_steps: 3 },
-  later_4: { direction: "later", sixteenth_note_steps: 4 },
+  later_sixteenth_triplet: { direction: "later", interval: "one sixteenth-note triplet step" },
+  later_eighth_triplet: { direction: "later", interval: "one eighth-note triplet step" },
+  later_sixteenth: { direction: "later", interval: "one straight sixteenth note" },
+  later_eighth: { direction: "later", interval: "one straight eighth note" },
 };
 const velocityChangeCriteria = {
-  decrease_2: { velocity_layer_delta: -2 },
-  decrease_1: { velocity_layer_delta: -1 },
-  no_change: { velocity_layer_delta: 0 },
-  increase_1: { velocity_layer_delta: 1 },
-  increase_2: { velocity_layer_delta: 2 },
+  decrease_2: { midi_velocity_delta: -32 },
+  decrease_1: { midi_velocity_delta: -16 },
+  no_change: { midi_velocity_delta: 0 },
+  increase_1: { midi_velocity_delta: 16 },
+  increase_2: { midi_velocity_delta: 32 },
 };
 
-function notesFromParts(state: PatternJevState): PartNote[] {
+function notesFromParts(state: PatternJevState) {
   return INSTRUMENTS.flatMap(instrument => state.pattern.parts[instrument].map(note => ({ ...note, instrument })));
 }
 
-function additionCriteria(state: PatternJevState, instrument: Instrument) {
-  const occupied = new Set(notesFromParts(state).map(note => `${note.instrument}:${note.bar}:${note.position}`));
+function additionCriteria(state: PatternJevState, instrument: Instrument, selectedBar: number | null = null) {
+  const occupied = new Set(notesFromParts(state).map(note => `${note.instrument}:${note.bar}:${note.tick}`));
   const criteria: Record<string, unknown> = { no_addition: { meaning: "The current pattern already satisfies the request, or the next edit should remove or modify an existing note." } };
   for (let bar = 1; bar <= state.pattern.bars; bar++) {
-    for (const position of POSITIONS) {
-      if (occupied.has(`${instrument}:${bar}:${position}`)) continue;
-      criteria[`add_${instrument}_in_bar_${bar}_at_${position}`] = {
+    if (selectedBar !== null && bar !== selectedBar) continue;
+    for (const position of editPositions(state.pattern.meter)) {
+      if (occupied.has(`${instrument}:${bar}:${position.tick}`)) continue;
+      criteria[`add_${instrument}_in_bar_${bar}_at_${position.id}`] = {
         action: `Add one ${instrumentCriteria[instrument].sound} note`,
         bar,
-        ...positionCriteria[position],
+        position: position.id,
+        tick: position.tick,
       };
     }
   }
   return criteria;
 }
 
-function additionQuestions(state: PatternJevState, instrument: Instrument) {
+function additionQuestions(state: PatternJevState, instrument: Instrument, bar: number | null = null) {
   return {
     [`addition_${instrument}_action`]: {
       type: "choice",
@@ -131,7 +117,7 @@ function additionQuestions(state: PatternJevState, instrument: Instrument) {
         context,
         focus: `Choose the most important missing ${instrumentCriteria[instrument].sound} position. Occupied positions are deliberately absent from the choices.`,
       },
-      criteria: additionCriteria(state, instrument),
+      criteria: additionCriteria(state, instrument, bar),
     },
     [`addition_${instrument}_velocity`]: {
       type: "choice",
@@ -141,8 +127,8 @@ function additionQuestions(state: PatternJevState, instrument: Instrument) {
   };
 }
 
-function noteQuestions(note: PartNote) {
-  const instructions = (extra: Record<string, string>) => ({ note: { ...note }, context, ...extra });
+function noteQuestions(note: PatternJevState["pattern"]["parts"][Instrument][number] & { instrument: Instrument }) {
+  const instructions = (extra: Record<string, unknown>) => ({ note: { ...note }, context, ...extra });
   return {
     [`${note.id}_operation`]: {
       type: "choice",
@@ -172,14 +158,19 @@ function noteQuestions(note: PartNote) {
         snare: { meaning: "Use a snare" },
         closed_hat: { meaning: "Use a closed hi-hat" },
         open_hat: { meaning: "Use an open hi-hat" },
+        ride: { meaning: "Use a ride cymbal" },
+        crash: { meaning: "Use a crash cymbal" },
+        high_tom: { meaning: "Use a high tom" },
+        mid_tom: { meaning: "Use a mid tom" },
+        floor_tom: { meaning: "Use a floor tom" },
       },
     },
   };
 }
 
-export function buildPatternQuestions(state: PatternJevState, relevantInstruments: readonly Instrument[] = INSTRUMENTS): Record<string, { type: "choice" | "noul"; instructions: unknown; criteria: Record<string, unknown> }> {
+export function buildPatternQuestions(state: PatternJevState, relevantInstruments: readonly Instrument[] = INSTRUMENTS): Questions {
   const selected = INSTRUMENTS.filter(instrument => relevantInstruments.includes(instrument));
-  const questions: Record<string, { type: "choice" | "noul"; instructions: unknown; criteria: Record<string, unknown> }> = {
+  const questions: Questions = {
     reset_pattern: {
       type: "noul",
       instructions: {
@@ -197,4 +188,34 @@ export function buildPatternQuestions(state: PatternJevState, relevantInstrument
   for (const instrument of selected) Object.assign(questions, additionQuestions(state, instrument));
   for (const note of notesFromParts(state).filter(note => selected.includes(note.instrument))) Object.assign(questions, noteQuestions(note));
   return questions;
+}
+
+export function patternSummary(state: PatternJevState) {
+  return { ...state, pattern: { ...state.pattern, hit_fields: ["tick", "velocity"], parts: Object.fromEntries(INSTRUMENTS.map(instrument => [instrument,
+    Array.from({ length: state.pattern.bars }, (_, i) => {
+      const notes = state.pattern.parts[instrument].filter(note => note.bar === i + 1);
+      return { bar: i + 1, notes: notes.length, hits: notes.map(note => [note.tick, note.velocity]) };
+    }),
+  ])) } };
+}
+
+export function buildScopeQuestion(state: PatternJevState, instruments: Instrument[]): Questions {
+  return { edit_scope: { type: "choice", instructions: "Choose the instrument and bar for the next single-note edit requested in `request`. For edits across several bars, choose the next bar that still needs a change. Choose none if already satisfied.", criteria: {
+    none: "No further edit needed",
+    ...Object.fromEntries(instruments.flatMap(instrument => Array.from({ length: state.pattern.bars }, (_, i) => [`${instrument}:${i + 1}`, `Edit ${instrument} in bar ${i + 1}`]))),
+  } } };
+}
+
+export function buildTargetQuestion(state: PatternJevState, instrument: Instrument, bar: number): Questions {
+  return { edit_target: { type: "choice", instructions: "Choose the one existing note to remove or modify next to fulfill `request`, or add a missing note in the selected instrument and bar. Choose none if this scope already satisfies the request.", criteria: {
+    none: "No further edit needed in this scope", add: `Add a ${instrument} note in bar ${bar}`,
+    ...Object.fromEntries(state.pattern.parts[instrument].filter(note => note.bar === bar).map(note => [note.id, note])),
+  } } };
+}
+
+export function buildTargetDetails(state: PatternJevState, instrument: Instrument, bar: number, target: string): Questions {
+  if (target === "add") return additionQuestions(state, instrument, bar);
+  const note = state.pattern.parts[instrument].find(note => note.id === target && note.bar === bar);
+  if (!note) throw new Error("Invalid edit target.");
+  return noteQuestions({ ...note, instrument });
 }

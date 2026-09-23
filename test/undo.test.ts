@@ -20,7 +20,7 @@ test("one undo reverses all passes of one request and keeps note IDs monotonic",
   const { recordUndoUnit, undoLastChange } = await import("../src/core/pattern/undo.js");
   const before = createPatternState();
   const completed = await runPatternRequest({ initialState: before, request: "add two kicks", maxPasses: 2, decide: async (_state, pass) => ({ answers: {
-    addition_kick_action: pick(`add_kick_in_bar_1_at_beat_${pass}`), addition_kick_velocity: pick("layer_4"),
+    addition_kick_action: pick(`add_kick_in_bar_1_at_beat_${pass}`), addition_kick_velocity: pick("velocity_4"),
   } }) });
   const accepted = recordUndoUnit(before, completed, "add two kicks");
   assert.equal(accepted.state.pattern.notes.length, 2);
@@ -74,7 +74,7 @@ test("a failed multi-pass request cannot create an undo unit or mutate accepted 
   const before = createPatternState();
   await assert.rejects(runPatternRequest({ initialState: before, request: "two kicks", maxPasses: 2, decide: async (_state, pass) => {
     if (pass === 2) throw new Error("network failed");
-    return { answers: { addition_kick_action: pick("add_kick_in_bar_1_at_beat_1"), addition_kick_velocity: pick("layer_4") } };
+    return { answers: { addition_kick_action: pick("add_kick_in_bar_1_at_beat_1"), addition_kick_velocity: pick("velocity_4") } };
   } }), /network failed/);
   assert.deepEqual(before.pattern.notes, []);
   assert.deepEqual(before.undo_history, []);

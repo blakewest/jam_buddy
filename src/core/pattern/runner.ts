@@ -1,4 +1,4 @@
-import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, resizePattern, stateForJev } from "./state.js";
+import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, MAX_BARS, resizePattern, stateForJev } from "./state.js";
 import type { ApplyPatternResult, HistoryEntry, Instrument, JevAnswers, PatternChange, PatternJevState, PatternState, Candidate } from "./state.js";
 
 export type PatternDecision = { answers: JevAnswers; model?: string; usage?: Record<string, number>; question_count?: number; latency_ms?: number };
@@ -35,7 +35,7 @@ export async function runPatternRequest({ initialState, request, decide, estimat
     const sentState = stateForJev(workingState, request);
     const decision = await estimateOperations(sentState);
     if (!Number.isInteger(decision.operation_count) || decision.operation_count < 0 || decision.operation_count > 8) throw new Error("Jev returned an invalid operation count.");
-    if (!Number.isInteger(decision.phrase_bars) || decision.phrase_bars < 1 || decision.phrase_bars > 4) throw new Error("Jev returned an invalid phrase length.");
+    if (!Number.isInteger(decision.phrase_bars) || decision.phrase_bars < 1 || decision.phrase_bars > MAX_BARS) throw new Error("Jev returned an invalid phrase length.");
     if (!Array.isArray(decision.relevant_instruments) || !decision.relevant_instruments.length || decision.relevant_instruments.some(instrument => !INSTRUMENTS.includes(instrument))) throw new Error("Jev returned invalid relevant instruments.");
     plannedOperations = Math.min(decision.operation_count, maxPasses);
     relevantInstruments = [...new Set(decision.relevant_instruments)];

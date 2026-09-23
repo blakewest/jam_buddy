@@ -7,10 +7,10 @@ type Completed = { state: PatternState; result: { applied_changes: { kind: strin
 // Called once at acceptance, after every edit pass and any required sample load.
 export function recordUndoUnit<T extends Completed>(before: PatternState, completed: T, request: string): T {
   if (completed.result.applied_changes.some(change => change.kind === "undo")
-    || JSON.stringify(before.pattern) === JSON.stringify(completed.state.pattern)) return completed;
+    || (JSON.stringify(before.pattern) === JSON.stringify(completed.state.pattern) && before.tempo_bpm === completed.state.tempo_bpm && JSON.stringify(before.preset_context) === JSON.stringify(completed.state.preset_context))) return completed;
   return { ...completed, state: { ...completed.state, undo_history: [
     ...(before.undo_history ?? []),
-    { request, pattern: clone(before.pattern) },
+    { request, pattern: clone(before.pattern), tempo_bpm: before.tempo_bpm, ...(before.preset_context ? { preset_context: clone(before.preset_context) } : {}) },
   ].slice(-MAX_UNDO_HISTORY) } };
 }
 
@@ -22,6 +22,8 @@ export function undoLastChange(initialState: PatternState, request = "Undo") {
   const restored = unit ? {
     ...state,
     pattern: clone(unit.pattern),
+    tempo_bpm: unit.tempo_bpm ?? state.tempo_bpm,
+    preset_context: unit.preset_context ? clone(unit.preset_context) : null,
     undo_history: state.undo_history.slice(0, -1),
   } : state;
   return {

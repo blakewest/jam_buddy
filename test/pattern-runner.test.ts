@@ -13,14 +13,14 @@ function addKick(slot: number, confidence = 0.9) {
   return {
     reset_pattern: noReset,
     addition_kick_action: choice(action.replace("add_kick_at_", "add_kick_in_bar_1_at_"), { no_addition: 1 - confidence, [action.replace("add_kick_at_", "add_kick_in_bar_1_at_")]: confidence }),
-    addition_kick_velocity: choice("layer_4", { layer_4: 1 }),
+    addition_kick_velocity: choice("velocity_4", { velocity_4: 1 }),
   };
 }
 
 const noChange = {
   reset_pattern: noReset,
   addition_kick_action: choice("no_addition", { no_addition: 1 }),
-  addition_kick_velocity: choice("layer_3", { layer_3: 1 }),
+  addition_kick_velocity: choice("velocity_3", { velocity_3: 1 }),
 };
 
 const response = (answers: JevAnswers) => ({ answers, model: "test-jev", usage: { input_tokens: 10, output_tokens: 2 }, question_count: 3, latency_ms: 20 });
@@ -38,7 +38,7 @@ test("four passes each see the preceding pattern and produce one history entry",
     },
   });
   assert.deepEqual(seenCounts, [0, 1, 2, 3]);
-  assert.deepEqual(completed.state.pattern.notes.map(note => note.slot), [1, 5, 9, 13]);
+  assert.deepEqual(completed.state.pattern.notes.map(note => note.tick), [0, 960, 1920, 2880]);
   assert.equal(completed.state.recent_history.length, 1);
   assert.equal(completed.state.recent_history[0].applied_changes.length, 4);
   assert.equal(completed.passes.length, 4);
@@ -53,7 +53,7 @@ test("the default run allows eight sequential additions", async () => {
     decide: async (_sentState, pass) => response(addKick(slots[pass - 1], 0.9)),
   });
   assert.equal(completed.passes.length, 8);
-  assert.deepEqual(completed.state.pattern.notes.map(note => note.slot), slots);
+  assert.deepEqual(completed.state.pattern.notes.map(note => note.tick), slots.map(slot => (slot - 1) * 240));
 });
 
 test("an operation estimate limits a one-note request to one edit pass", async () => {

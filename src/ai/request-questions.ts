@@ -49,6 +49,9 @@ function buildRootQuestions() {
     Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { meaning: branch.description }]),
   );
   const focus = [
+    "Clear every note or start empty selects clear_pattern; never generate note-by-note deletions for this.",
+    "Another/different beat, 'no, something else', 'try again', and 'shuffle funk' select shuffle_preset.",
+    "A complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern.",
     "Requests like 'Undo that', 'undo', 'revert the last change' and 'take that back' select undo.",
     "Undo restores the complete latest change locally; never route these to note editing.",
     "Requests to redo, undo several changes at once, or selectively undo an older change are unsupported.",
