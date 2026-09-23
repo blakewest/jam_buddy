@@ -1,5 +1,5 @@
 import { KITS } from "../core/pattern/kits.js";
-import { NODE_CHOICES, REQUEST_CATEGORIES, nodeOutcome } from "../core/pattern/request-tree.js";
+import { QUESTION_CHOICES, REQUEST_TREE, nodeOutcome } from "../core/pattern/request-tree.js";
 import type { HistoryEntry } from "../core/pattern/state.js";
 
 export type RequestState = {
@@ -46,11 +46,8 @@ function selectionQuestion(question: string, focus: string, criteria: Record<str
 
 function buildRootQuestions() {
   const criteria: Record<string, unknown> = Object.fromEntries(
-    Object.entries(REQUEST_CATEGORIES).map(([id, description]) => [id, { meaning: description }]),
+    Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { meaning: branch.description }]),
   );
-  criteria.unsupported = {
-    meaning: "Outside supported capabilities, no actionable request, or combines different actions (such as undo plus editing, or kit swapping plus note editing). Effects, compression, tempo changes and per-instrument sample replacement are unsupported.",
-  };
   const focus = [
     "Requests like 'Undo that', 'undo', 'revert the last change' and 'take that back' select undo.",
     "Undo restores the complete latest change locally; never route these to note editing.",
@@ -79,7 +76,8 @@ function buildKitQuestions() {
   return selectionQuestion("Which available whole drum kit best satisfies `request`, given the current `kit_id`?", focus, criteria);
 }
 
-export const REQUEST_NODES = Object.freeze({
+// Question builders for the decision nodes in REQUEST_TREE. Local branches need no questions.
+export const REQUEST_QUESTIONS = Object.freeze({
   root: {
     id: "root",
     buildQuestions: buildRootQuestions,
@@ -101,4 +99,4 @@ export function validRequestState(state: unknown): state is RequestState {
     && state.recent_history.every(validHistoryEntry);
 }
 
-export const isRequestNode = (id: unknown): id is keyof typeof REQUEST_NODES => typeof id === "string" && Object.hasOwn(NODE_CHOICES, id);
+export const isRequestQuestion = (id: unknown): id is keyof typeof REQUEST_QUESTIONS => typeof id === "string" && Object.hasOwn(QUESTION_CHOICES, id);

@@ -2,7 +2,7 @@ import { createServer as httpServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { TIMING_QUESTION } from "../ai/timing-question.js";
 import { buildPatternQuestions, PLANNING_QUESTIONS } from "../ai/pattern-questions.js";
-import { REQUEST_NODES, validRequestState, isRequestNode } from "../ai/request-questions.js";
+import { REQUEST_QUESTIONS, validRequestState, isRequestQuestion } from "../ai/request-questions.js";
 import { ACTIONS } from "../core/timing/session.js";
 import { INSTRUMENTS, MUSIC_REFERENCE, POSITIONS } from "../core/pattern/state.js";
 import type { Instrument, PatternJevState } from "../core/pattern/state.js";
@@ -152,10 +152,10 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     const treeRequest = path === "/api/request-decision";
     const patternRequest = editRequest || planRequest;
     const validInstruments = editRequest && exactKeys(payload, ["state", "instruments"]) && Array.isArray(payload.instruments) && payload.instruments.length >= 1 && payload.instruments.length <= 4 && new Set(payload.instruments).size === payload.instruments.length && payload.instruments.every((instrument: unknown) => typeof instrument === "string" && INSTRUMENTS.some(item => item === instrument));
-    const validPayload = treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestNode(payload.node_id) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : exactKeys(payload, ["state"]);
+    const validPayload = treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestQuestion(payload.node_id) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : exactKeys(payload, ["state"]);
     if (!validPayload || !isRecord(payload) || !(treeRequest ? validRequestState(payload.state) : patternRequest ? validPatternState(payload.state) : validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
     if (!apiKey?.trim()) return json(res, 503, { code: "missing_api_key", error: "Set TYPESAFE_API_KEY in the local .env file, then restart the server." });
-    const questions = treeRequest ? REQUEST_NODES[payload.node_id as keyof typeof REQUEST_NODES].buildQuestions() : planRequest ? PLANNING_QUESTIONS : editRequest ? buildPatternQuestions(payload.state as PatternJevState, payload.instruments as Instrument[]) : { action: TIMING_QUESTION };
+    const questions = treeRequest ? REQUEST_QUESTIONS[payload.node_id as keyof typeof REQUEST_QUESTIONS].buildQuestions() : planRequest ? PLANNING_QUESTIONS : editRequest ? buildPatternQuestions(payload.state as PatternJevState, payload.instruments as Instrument[]) : { action: TIMING_QUESTION };
     const abort = new AbortController();
     const timeoutMs = (patternRequest || treeRequest) ? 10000 : 2000;
     const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -174,7 +174,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       const data = await upstream.json();
       if (treeRequest) {
         if (!validPatternAnswers(data, questions)) return json(res, 502, { error: "TypeSafe returned invalid request answers." });
-        const outcome = REQUEST_NODES[payload.node_id as keyof typeof REQUEST_NODES].validate(data.answers);
+        const outcome = REQUEST_QUESTIONS[payload.node_id as keyof typeof REQUEST_QUESTIONS].validate(data.answers);
         return json(res, 200, { answers: data.answers, outcome, model: data.model, usage: data.usage, question_count: Object.keys(questions).length });
       }
       if (patternRequest) {

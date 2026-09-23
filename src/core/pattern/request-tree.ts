@@ -4,12 +4,41 @@ import { getKit, KITS } from "./kits.js";
 import type { Candidate, HistoryEntry, PatternChange, PatternState } from "./state.js";
 import type { PatternPass, PatternPlan, PatternRunResult } from "./runner.js";
 
-export type RequestNodeId = "root" | "change_kit";
+export type RequestBranchId = "edit_pattern" | "change_kit" | "undo" | "unsupported";
+export type RequestQuestionId = "root" | "change_kit";
 export type NodeAnswer = { selection?: { type: "choice"; choice: string } };
-export type NodeOutcome = { next_node: "change_kit"; handler?: never; selection?: never } | { next_node?: never; handler: string; selection: string };
-export type NodeDecision = { answers: NodeAnswer; model?: string; usage?: Record<string, number>; latency_ms?: number; question_count?: number };
-type CommandOptions = { initialState: PatternState; request: string; decideNode: (nodeId: RequestNodeId, state: { request: string; kit_id: string; recent_history: HistoryEntry[] }) => Promise<NodeDecision>; editPattern?: () => Promise<PatternRunResult> };
-export type RouteDecision = NodeDecision & { node_id: RequestNodeId; sent_state: { request: string; kit_id: string; recent_history: HistoryEntry[] }; outcome: NodeOutcome };
+export type NodeOutcome =
+  | { next_node: RequestBranchId }
+  | { handler: "change_kit"; selection: string };
+export type NodeDecision = {
+  answers: NodeAnswer;
+  model?: string;
+  usage?: Record<string, number>;
+  latency_ms?: number;
+  question_count?: number;
+};
+type RequestContext = {
+  request: string;
+  kit_id: string;
+  recent_history: HistoryEntry[];
+};
+type CommandOptions = {
+  initialState: PatternState;
+  request: string;
+  decideNode: (questionId: RequestQuestionId, state: RequestContext) => Promise<NodeDecision>;
+  editPattern?: () => Promise<PatternRunResult>;
+};
+type BranchContext = {
+  state: PatternState;
+  request: string;
+  ask: (questionId: RequestQuestionId) => Promise<NodeOutcome>;
+  editPattern: CommandOptions["editPattern"];
+};
+export type RouteDecision = NodeDecision & {
+  node_id: RequestQuestionId;
+  sent_state: RequestContext;
+  outcome: NodeOutcome;
+};
 export type CommandResult = {
   state: PatternState;
   result: {
@@ -32,22 +61,72 @@ export type CommandResult = {
   routing?: RouteDecision[];
 };
 
-export const REQUEST_CATEGORIES = Object.freeze({
-  edit_pattern: "edit drum notes, rhythms, velocities, or phrase length",
-  change_kit: "switch the whole drum kit",
-  undo: "undo the most recent completed change as one unit",
-});
-export const NODE_CHOICES = Object.freeze({
-  root: [...Object.keys(REQUEST_CATEGORIES), "unsupported"],
-  change_kit: [...KITS.map(kit => kit.id), "keep_current", "unsupported"],
-});
-export const unsupportedGuidance = () => `I can ${Object.values(REQUEST_CATEGORIES).join(" or ")}. Ask for one kind of change at a time. Available kits: ${KITS.map(kit => kit.name).join(", ")}.`;
+// The full request tree. Each child owns its execution; only decision branches ask Jev.
+export const REQUEST_TREE = {
+  root: {
+    id: "root" as const,
+    children: {
+      edit_pattern: {
+        description: "edit drum notes, rhythms, velocities, or phrase length",
+        execute: editPatternBranch,
+      },
+      change_kit: {
+        description: "switch the whole drum kit",
+        execute: changeKitBranch,
+      },
+      undo: {
+        description: "undo the most recent completed change as one unit",
+        execute: undoBranch,
+      },
+      unsupported: {
+        description: "Outside supported capabilities, no actionable request, or combines different actions (such as undo plus editing, or kit swapping plus note editing). Effects, compression, tempo changes and per-instrument sample replacement are unsupported.",
+        execute: unsupportedBranch,
+      },
+    },
+  },
+};
 
-export function nodeOutcome(nodeId: RequestNodeId, answers: NodeAnswer): NodeOutcome {
+export const QUESTION_CHOICES = {
+  root: Object.keys(REQUEST_TREE.root.children),
+  change_kit: [...KITS.map(kit => kit.id), "keep_current", "unsupported"],
+};
+
+export function unsupportedGuidance(): string {
+  const capabilities = Object.entries(REQUEST_TREE.root.children)
+    .filter(([id]) => id !== "unsupported")
+    .map(([, branch]) => branch.description);
+  return `I can ${capabilities.join(" or ")}. Ask for one kind of change at a time. Available kits: ${KITS.map(kit => kit.name).join(", ")}.`;
+}
+
+export function nodeOutcome(questionId: RequestQuestionId, answers: NodeAnswer): NodeOutcome {
   const answer = answers?.selection;
-  if (answer?.type !== "choice" || !NODE_CHOICES[nodeId]?.includes(answer.choice)) throw new Error("Invalid request decision.");
-  if (nodeId === "root" && answer.choice === "change_kit") return { next_node: "change_kit" };
-  return { handler: nodeId === "root" ? answer.choice : "change_kit", selection: answer.choice };
+  if (answer?.type !== "choice" || !QUESTION_CHOICES[questionId]?.includes(answer.choice)) {
+    throw new Error("Invalid request decision.");
+  }
+  if (questionId === "root") return { next_node: answer.choice as RequestBranchId };
+  return { handler: "change_kit", selection: answer.choice };
+}
+
+function editPatternBranch({ editPattern }: BranchContext): Promise<PatternRunResult> {
+  if (!editPattern) throw new Error("Pattern editing is unavailable.");
+  return editPattern();
+}
+
+async function changeKitBranch(context: BranchContext): Promise<CommandResult> {
+  const outcome = await context.ask("change_kit");
+  if (!("selection" in outcome)) throw new Error("Invalid kit decision.");
+  if (outcome.selection === "unsupported") return unsupportedBranch(context);
+  const kitId = outcome.selection === "keep_current" ? context.state.pattern.kit_id : outcome.selection;
+  return changeKit(context.state, kitId, context.request);
+}
+
+function undoBranch({ state, request }: BranchContext): CommandResult {
+  return undoLastChange(state, request);
+}
+
+function unsupportedBranch({ state, request }: BranchContext): CommandResult {
+  const completed = changeKit(state, state.pattern.kit_id, request);
+  return { ...completed, message: unsupportedGuidance() };
 }
 
 export function changeKit(initialState: PatternState, kitId: string, request: string) {
@@ -69,27 +148,18 @@ export async function runPatternCommand({ initialState, request, decideNode, edi
   const state = createPatternState(initialState);
   const sentState = { request, kit_id: state.pattern.kit_id, recent_history: state.recent_history };
   const routing: RouteDecision[] = [];
-  let nodeId: RequestNodeId = "root";
-  let outcome: NodeOutcome;
-  do {
-    const decision = await decideNode(nodeId, sentState);
-    outcome = nodeOutcome(nodeId, decision.answers);
-    routing.push({ node_id: nodeId, sent_state: sentState, ...decision, outcome });
-    if (!outcome.next_node) break;
-    nodeId = outcome.next_node;
-  } while (true);
+  const ask = async (questionId: RequestQuestionId): Promise<NodeOutcome> => {
+    const decision = await decideNode(questionId, sentState);
+    const outcome = nodeOutcome(questionId, decision.answers);
+    routing.push({ node_id: questionId, sent_state: sentState, ...decision, outcome });
+    return outcome;
+  };
 
-  let completed;
-  if (outcome.handler === "edit_pattern") {
-    if (!editPattern) throw new Error("Pattern editing is unavailable.");
-    completed = await editPattern();
-  } else if (outcome.handler === "undo") {
-    completed = undoLastChange(state, request);
-  } else {
-    const kitId = KITS.some(kit => kit.id === outcome.selection) ? outcome.selection : state.pattern.kit_id;
-    completed = changeKit(state, kitId, request);
-    if (outcome.handler === "unsupported" || outcome.selection === "unsupported") completed.message = unsupportedGuidance();
-  }
+  const route = await ask(REQUEST_TREE.root.id);
+  if (!("next_node" in route)) throw new Error("Invalid root decision.");
+  const branch = REQUEST_TREE.root.children[route.next_node];
+  const completed = await branch.execute({ state, request, ask, editPattern });
+
   const usage: Record<string, number> = { ...completed.usage };
   let latencyMs = completed.latency_ms ?? 0;
   let questionCount = completed.question_count ?? 0;

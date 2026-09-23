@@ -50,3 +50,27 @@ test("tree rejects invalid node answers before any state change", async () => {
   const { runPatternCommand } = await import("../src/core/pattern/request-tree.js");
   await assert.rejects(runPatternCommand({ initialState, request: "test", decideNode: async () => decision("arbitrary_handler") }), /invalid/i);
 });
+
+test("root routes every category to its own child branch", async () => {
+  const { nodeOutcome } = await import("../src/core/pattern/request-tree.js");
+  for (const category of ["edit_pattern", "change_kit", "undo", "unsupported"]) {
+    assert.deepEqual(nodeOutcome("root", decision(category).answers), { next_node: category });
+  }
+});
+
+test("unsupported root branch returns guidance without invoking an editor or another decision", async () => {
+  const { runPatternCommand, unsupportedGuidance } = await import("../src/core/pattern/request-tree.js");
+  const visited: string[] = [];
+  const completed = await runPatternCommand({
+    initialState,
+    request: "Add compression",
+    decideNode: async node => {
+      visited.push(node);
+      return decision("unsupported");
+    },
+    editPattern: () => { throw new Error("Unsupported requests must not edit"); },
+  });
+  assert.deepEqual(visited, ["root"]);
+  assert.deepEqual(completed.state.pattern, initialState.pattern);
+  assert.equal(completed.message, unsupportedGuidance());
+});
