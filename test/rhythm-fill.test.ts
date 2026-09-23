@@ -64,3 +64,30 @@ test("an already-filled request remains the reference for the next fill, without
   const context = rhythmFillContext(stateForJev(accepted.state, "Do it on beats 2, 3 and 4 as well"));
   assert.equal(context.previous_change?.request, "Can I get 16ths on the hi-hats?");
 });
+
+test("chained implicit no-op fills retain drum and spacing after save/reload without adding undo steps", async () => {
+  const { applyRhythmFill } = await import("../src/core/pattern/rhythm-fill.js");
+  const { rhythmFillContext } = await import("../src/ai/rhythm-fill-questions.js");
+  const { stateForJev } = await import("../src/core/pattern/state.js");
+  for (const instrument of ["closed_hat", "snare"] as const) {
+    const before = createPatternState();
+    const target = { instrument, note_value: "sixteenths" as const, bars: [1], beats: [1], velocity: 64 };
+    const first = recordUndoUnit(before, applyRhythmFill(before, target, `16ths on ${instrument} on beat 1`), "Fill beat 1");
+    let state = first.state;
+    // Evict the original explicit request so only resolved no-op history remains.
+    for (let repeat = 0; repeat < 9; repeat++) {
+      const completed = applyRhythmFill(state, target, "Do it on beat 1 again");
+      assert.equal(completed.result.applied_changes.length, 0);
+      state = recordUndoUnit(state, completed, "Do it on beat 1 again").state;
+    }
+    state = createPatternState(JSON.parse(JSON.stringify(state)));
+    assert.deepEqual(state.undo_history, first.state.undo_history);
+    assert.deepEqual(state.pattern, first.state.pattern);
+    const context = rhythmFillContext(stateForJev(state, "Do it on beats 2, 3 and 4 as well"));
+    const descriptions = context.previous_change?.applied_changes.join(" ") ?? "";
+    assert.ok(descriptions.includes(instrument));
+    assert.match(descriptions, /sixteenths/);
+    assert.match(descriptions, /added 0 notes/);
+    assert.deepEqual(undoLastChange(state).state.pattern, before.pattern);
+  }
+});

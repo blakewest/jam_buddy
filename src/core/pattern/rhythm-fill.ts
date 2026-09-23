@@ -32,6 +32,8 @@ export function applyRhythmFill(input: PatternState, intent: RhythmIntent, reque
   }
   if (!targets.every(({ bar, tick }) => covered(bar, tick))) throw new Error("Rhythm fill is incomplete.");
   const description = `Filled ${intent.instrument} with ${intent.note_value} in bars ${intent.bars.join(", ")}, beats ${intent.beats.join(", ")}; added ${changes.length} notes.`;
-  const history = { request, applied_changes: changes.length ? [description] : [], rejected_changes: [] };
+  // Keep the resolved target for follow-ups, even when no notes were added.
+  // Actual edits (and undo) still use the separate changes array.
+  const history = { request, applied_changes: [description], rejected_changes: [] };
   return { state: appendHistory({ ...state, next_note_id: nextId, pattern: { ...state.pattern, notes } }, history), result: { applied_changes: changes, rejected_changes: [], history_entry: history, message: changes.length ? description : "Those rhythm positions are already filled." } };
 }
