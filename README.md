@@ -7,6 +7,7 @@ Two local browser experiments for TypeSafe-powered musical interaction. No keybo
 Requires Node.js 22.20 or newer. From this folder:
 
 ```sh
+npm install
 npm start
 ```
 
@@ -15,12 +16,14 @@ Open either page in Chrome:
 - http://127.0.0.1:3210/ — real-time MIDI fixture and start/stop timing test.
 - http://127.0.0.1:3210/pattern.html — stateful one-to-four-bar drum pattern builder.
 
-Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, then start the server. The key never reaches the browser. No npm dependencies are needed.
+Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, then start the server. The key never reaches the browser. TypeScript and Node type definitions are development dependencies; there are no runtime npm dependencies.
 
-You can also run the server directly:
+`npm start` builds the TypeScript source and copies static assets into `dist/`. To build or type-check separately:
 
 ```sh
-node --env-file=.env server.mjs
+npm run typecheck
+npm run build
+node --env-file=.env dist/server.js
 ```
 
 ## Project layout
@@ -31,7 +34,7 @@ node --env-file=.env server.mjs
 - `src/services/` contains the local HTTP server and TypeSafe proxy.
 - `test/` contains the automated tests.
 
-The root `server.mjs` only starts the HTTP service.
+The root `server.ts` only starts the HTTP service. All source and tests use `.ts`; strict type-checking runs during the build. Imports use `.js` paths to match the compiled output. Generated `dist/` files are ignored by Git.
 
 Use wired headphones and keep the tab visible. Hiding the tab ends the run so browser suspension does not contaminate timing results.
 
@@ -65,7 +68,7 @@ A fresh browser can replay the measured Live run saved in `recordings/live-60s.j
 
 Only the last 10 seconds / latest 500 MIDI events, local `silent_for_ms`, current drum status, and whether a start is scheduled. Note releases and sustain pedal affect silence calculations. Session IDs, current time, tempo, and next-bar deadlines stay local.
 
-The explicit test rule is: join on the next bar after playing begins; stop after one second with no active/sustained notes; otherwise preserve the current state. `src/ai/timing-question.mjs` contains the exact question. The TypeSafe model is `jev-latest`; each response's actual model identifier is recorded.
+The explicit test rule is: join on the next bar after playing begins; stop after one second with no active/sustained notes; otherwise preserve the current state. `src/ai/timing-question.ts` contains the exact question. The TypeSafe model is `jev-latest`; each response's actual model identifier is recorded.
 
 Snapshots are attempted every 100 ms, with one request in flight. Busy ticks are skipped; old states are never queued. Each request has a two-second timeout and no automatic retry of that snapshot. Errors use a fresh snapshot after backoff; rate-limit headers are respected. Invalid credentials or missing configuration end the Live run.
 

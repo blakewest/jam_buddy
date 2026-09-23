@@ -2,9 +2,17 @@
   "name": "jam-buddy",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.20.0" },
+  "engines": {
+    "node": ">=22.20.0"
+  },
   "scripts": {
-    "start": "node --env-file=.env server.mjs",
-    "test": "node --test"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && node dist/scripts/copy-assets.js",
+    "start": "npm run build && node --env-file=.env dist/server.js",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^7.0.2"
   }
 }
