@@ -16,6 +16,7 @@
     <section class="transport panel" aria-label="Pattern playback">
       <div class="transport-buttons"><button id="play" class="primary">▶ Play loop</button><button id="stop" disabled>■ Stop</button></div>
       <div class="transport-meta"><label>Tempo <input id="tempo" type="number" min="40" max="240" step="1" value="120"> BPM</label><span id="phrase-bars">1 bar</span><span id="phrase-steps">4/4</span></div>
+      <label>Kit <select id="kit"></select></label><span id="kit-status" role="status">Acoustic</span>
       <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8"></label>
       <span id="playback-status" class="status" role="status">Stopped</span>
     </section>
@@ -36,7 +37,7 @@
     </section>
     <div class="columns">
       <section class="history panel" aria-labelledby="history-heading">
-        <div class="section-heading"><div><span class="eyebrow">SESSION</span><h2 id="history-heading">Change history</h2></div><div class="small-actions"><button id="clear" type="button">Clear pattern</button><button id="new-session" type="button">New session</button></div></div>
+        <div class="section-heading"><div><span class="eyebrow">SESSION</span><h2 id="history-heading">Change history</h2></div><div class="small-actions"><button id="undo" type="button">Undo</button><button id="clear" type="button">Clear pattern</button><button id="new-session" type="button">New session</button></div></div>
         <div id="history-list" class="history-list"><p class="empty">Your first change will appear here.</p></div>
       </section>
       <section class="inspector panel" aria-labelledby="inspector-heading">

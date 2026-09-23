@@ -7,6 +7,7 @@ Local browser experiments for TypeSafe-powered musical interaction, with a groov
 Requires Node.js 22.20 or newer. From this folder:
 
 ```sh
+npm install
 npm start
 ```
 
@@ -16,12 +17,14 @@ Open either page in Chrome:
 - http://127.0.0.1:3210/pattern.html — stateful one-to-eight-bar drum pattern builder.
 - http://127.0.0.1:3210/presets.html — audition 50 original source-audio clips and mark favorites locally.
 
-Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, then start the server. The key never reaches the browser. No npm dependencies are needed.
+Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, then start the server. The key never reaches the browser. TypeScript and Node type definitions are development dependencies; there are no runtime npm dependencies.
 
-You can also run the server directly:
+`npm start` builds the TypeScript source and copies static assets into `dist/`. You can also check, build, and run separately:
 
 ```sh
-node --env-file=.env server.mjs
+npm run typecheck
+npm run build
+node --env-file=.env dist/server.js
 ```
 
 ## Project layout
@@ -32,7 +35,7 @@ node --env-file=.env server.mjs
 - `src/services/` contains the local HTTP server and TypeSafe proxy.
 - `test/` contains the automated tests.
 
-The root `server.mjs` only starts the HTTP service.
+The root `server.ts` only starts the HTTP service.
 
 Use wired headphones and keep the tab visible. Hiding the tab ends the run so browser suspension does not contaminate timing results.
 
@@ -40,7 +43,7 @@ Use wired headphones and keep the tab visible. Hiding the tab ends the run so br
 
 The pattern builder starts with an empty 4/4 bar at 120 BPM and can expand to eight bars. Type a request such as `Give me a simple backbeat`, `Load a laid-back hip-hop beat`, or `Add a snare on beat 2`. Loading a preset replaces the current beat and sets its source tempo. The transport can then change it from 40–240 BPM.
 
-Every request first passes through one small TypeSafe routing question. The deterministic request tree separates editing, preset loading, clearing, shuffling, and unsupported requests. Clearing executes locally. Shuffling excludes the current preset and retains the previous search filters for requests like `No, something else`. Unsupported guidance comes from the registered capabilities.
+Every request first passes through one small TypeSafe routing question. The deterministic request tree separates editing, preset loading, clearing, shuffling, kit changes, undo, and unsupported requests. Clearing executes locally. Shuffling excludes the current preset and retains the previous search filters for requests like `No, something else`. Unsupported guidance comes from the registered capabilities.
 
 Relative velocity edits first use one structured interpretation call for operation, instrument, beats, bars, and subdivisions. Code then changes every matching note once. Other edits use a planning call for phrase length, involved instruments, and zero through eight atomic operations. Large patterns narrow by instrument/bar and then target note or addition before detailed questions are built. Each atomic pass sees the preceding result; a no-edit response stops early. Every API call is checked against question, choice, and context-size budgets. Collisions are rejected and shown in the inspector. While the loop plays, the final accepted pattern begins at the next phrase boundary; clearing stops it immediately.
 
@@ -50,7 +53,11 @@ Patterns use 960 ticks per quarter note, preserve human timing and MIDI velocity
 
 The active catalog is exactly the ten approved source grooves plus the locally authored Simple Backbeat, all in 4/4. Jev chooses among matching presets using genre, feel, meter, tags, source tempo, and descriptions. Legacy demo presets are not selectable. Imported phrases retain up to eight source bars; audition clips play original audio, while the beat maker renders the matching MIDI with its own kit, so their timbres differ.
 
-The approved shortlist is recorded in `CURATED_GROOVE_IDS` in `src/core/pattern/audition-grooves.js`. Later Keep/Reject changes on the audition page are local browser preferences, not automatic changes to the active catalog. The bundled previews total about 140 MB but load only when played; the articulation kit totals about 23 MB. Asset sources and licenses are in `src/frontend/assets/ATTRIBUTION.md`.
+The approved shortlist is recorded in `CURATED_GROOVE_IDS` in `src/core/pattern/audition-grooves.ts`. Later Keep/Reject changes on the audition page are local browser preferences, not automatic changes to the active catalog. The bundled previews total about 140 MB but load only when played; the articulation kit totals about 23 MB. Asset sources and licenses are in `src/frontend/assets/ATTRIBUTION.md`.
+
+The kit selector or requests like `Use the 808` switch between Acoustic, 808, and TR-505 without changing notes. The electronic packs contain kick, snare, and two hat voices; other lanes retain acoustic sounds. Electronic voices use gain-scaled single samples rather than acoustic articulation/velocity layers. Undo restores the last accepted request as one unit, including its kit, tempo, and preset context. Stop and New session cancel pending requests and sample loads.
+
+To regenerate imported MIDI modules, first run `npm run build`, then `node tools/build-gmd-presets.mjs SELECTED_MIDI_DIR CURATED_MIDI_DIR` with the source MIDI directories. The generated files are TypeScript; build again afterward.
 
 ## Modes
 
@@ -66,7 +73,7 @@ A fresh browser can replay the measured Live run saved in `recordings/live-60s.j
 
 Only the last 10 seconds / latest 500 MIDI events, local `silent_for_ms`, current drum status, and whether a start is scheduled. Note releases and sustain pedal affect silence calculations. Session IDs, current time, tempo, and next-bar deadlines stay local.
 
-The explicit test rule is: join on the next bar after playing begins; stop after one second with no active/sustained notes; otherwise preserve the current state. `src/ai/timing-question.mjs` contains the exact question. The TypeSafe model is `jev-latest`; each response's actual model identifier is recorded.
+The explicit test rule is: join on the next bar after playing begins; stop after one second with no active/sustained notes; otherwise preserve the current state. `src/ai/timing-question.ts` contains the exact question. The TypeSafe model is `jev-latest`; each response's actual model identifier is recorded.
 
 Snapshots are attempted every 100 ms, with one request in flight. Busy ticks are skipped; old states are never queued. Each request has a two-second timeout and no automatic retry of that snapshot. Errors use a fresh snapshot after backoff; rate-limit headers are respected. Invalid credentials or missing configuration end the Live run.
 

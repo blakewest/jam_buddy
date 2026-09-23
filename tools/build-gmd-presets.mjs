@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AUDITION_GROOVES, CURATED_GROOVE_IDS } from "../src/core/pattern/audition-grooves.js";
-import { instrumentForPitch } from "../src/core/pattern/drum-pitches.js";
+import { AUDITION_GROOVES, CURATED_GROOVE_IDS } from "../dist/src/core/pattern/audition-grooves.js";
+import { instrumentForPitch } from "../dist/src/core/pattern/drum-pitches.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASE_IDS = ["drummer3/session1/10", "drummer1/session2/6", "drummer1/eval_session/2", "drummer3/session2/31"];
@@ -89,8 +89,8 @@ function build(ids, selectedDir, curatedDir) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [selectedDir, curatedDir] = process.argv.slice(2);
   if (!selectedDir || !curatedDir) throw new Error("Usage: node tools/build-gmd-presets.mjs SELECTED_MIDI_DIR CURATED_MIDI_DIR");
-  const write = (file, name, ids) => fs.writeFileSync(path.join(ROOT, "src/core/pattern", file), `export const ${name} = Object.freeze(${JSON.stringify(build(ids, selectedDir, curatedDir), null, 2)});\n`);
-  write("gmd-presets.js", "GMD_PRESETS", BASE_IDS);
+  const write = (file, name, ids) => fs.writeFileSync(path.join(ROOT, "src/core/pattern", file), `export const ${name}: Readonly<Record<string, { bars: number; notes: Omit<import("./state.js").PatternNote, "id">[] }>> = Object.freeze(${JSON.stringify(build(ids, selectedDir, curatedDir), null, 2)});\n`);
+  write("gmd-presets.ts", "GMD_PRESETS", BASE_IDS);
   const curatedSources = CURATED_GROOVE_IDS.map(id => AUDITION_GROOVES.find(groove => groove.id === id)?.source_id).filter(id => id && !BASE_IDS.includes(id));
-  write("gmd-curated-presets.js", "GMD_CURATED_PRESETS", curatedSources);
+  write("gmd-curated-presets.ts", "GMD_CURATED_PRESETS", curatedSources);
 }

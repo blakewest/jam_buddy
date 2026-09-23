@@ -64,3 +64,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 details { margin-top: 14px; border-top: 1px solid #29323a; padding-top: 13px; }summary { color: #8b9aa4; font-size: 11px; cursor: pointer; }pre { max-height: 330px; overflow: auto; padding: 12px; background: #0e1418; color: #aab8bf; white-space: pre-wrap; word-break: break-word; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 footer { padding: 20px 2px; color: #5f707b; font-size: 10px; }
 @media(max-width: 800px) { main { padding: 24px 13px; }header { align-items: flex-start; }.local { display: none; }.transport { flex-wrap: wrap; }.transport-meta { order: 3; width: 100%; }.volume { margin-left: 0; }.status { margin-left: auto; }.columns { grid-template-columns: 1fr; }.prompt-row { grid-template-columns: 1fr; }.request-status { flex-direction: column; }.pattern, .prompt, .history, .inspector { padding: 16px; }.small-actions { flex-wrap: wrap; justify-content: flex-end; } }
+
+.kit-select { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.kit-select select { font: inherit; color: inherit; background: transparent; border: 1px solid #b9c5c1; border-radius: 8px; padding: 8px 12px; }
+.kit-select select:disabled { opacity: 0.6; }
