@@ -1,23 +1,30 @@
 import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, resizePattern, stateForJev } from "./state.js";
+import type { ApplyPatternResult, HistoryEntry, Instrument, JevAnswers, PatternChange, PatternJevState, PatternState, Candidate } from "./state.js";
 
-function withPass(items, pass) {
+export type PatternDecision = { answers: JevAnswers; model?: string; usage?: Record<string, number>; question_count?: number; latency_ms?: number };
+export type PatternPlan = Omit<PatternDecision, "answers"> & { answers?: JevAnswers; operation_count: number; phrase_bars: number; relevant_instruments: Instrument[]; sent_state?: PatternJevState };
+export type PatternPass = PatternDecision & { pass: number; sent_state: PatternJevState; result: ApplyPatternResult };
+export type PatternRunResult = { state: PatternState; result: ApplyPatternResult & { pass_count?: number; planned_operations?: number }; plan: PatternPlan | null; passes: PatternPass[]; model: string | null; usage: Record<string, number>; question_count: number; latency_ms: number; message?: string | null };
+type RunOptions = { initialState: PatternState; request: string; decide: (state: PatternJevState, pass: number, options: { relevant_instruments: Instrument[] }) => Promise<PatternDecision>; estimateOperations?: (state: PatternJevState) => Promise<PatternPlan>; maxPasses?: number; onPass?: (pass: PatternPass) => void | Promise<void> };
+
+function withPass<T extends object>(items: T[], pass: number): (T & { pass: number })[] {
   return items.map(item => ({ ...item, pass }));
 }
 
-export async function runPatternRequest({ initialState, request, decide, estimateOperations, maxPasses = 8, onPass = () => {} }) {
+export async function runPatternRequest({ initialState, request, decide, estimateOperations, maxPasses = 8, onPass = () => {} }: RunOptions): Promise<PatternRunResult> {
   let workingState = createPatternState(initialState);
-  const passes = [];
-  const result = { reset_probability: 0, candidates: [], applied_changes: [], rejected_changes: [], ignored_changes: [], pass_count: 0 };
-  const historyEntry = { request, applied_changes: [], rejected_changes: [] };
-  const usage = {};
+  const passes: PatternPass[] = [];
+  const result: PatternRunResult["result"] = { reset_probability: 0, candidates: [], applied_changes: [], rejected_changes: [], ignored_changes: [], history_entry: { request, applied_changes: [], rejected_changes: [] }, pass_count: 0 };
+  const historyEntry: HistoryEntry = { request, applied_changes: [], rejected_changes: [] };
+  const usage: Record<string, number> = {};
   let questionCount = 0;
   let latencyMs = 0;
-  let model = null;
-  let plan = null;
+  let model: string | null = null;
+  let plan: PatternPlan | null = null;
   let plannedOperations = maxPasses;
   let relevantInstruments = [...INSTRUMENTS];
 
-  const addMetrics = decision => {
+  const addMetrics = (decision: PatternDecision | PatternPlan) => {
     for (const [key, value] of Object.entries(decision.usage ?? {})) if (Number.isFinite(value)) usage[key] = (usage[key] ?? 0) + value;
     questionCount += Number(decision.question_count) || 0;
     latencyMs += Number(decision.latency_ms) || 0;
@@ -38,7 +45,7 @@ export async function runPatternRequest({ initialState, request, decide, estimat
       const before = workingState.pattern.bars;
       const removedNotes = workingState.pattern.notes.filter(note => note.bar > decision.phrase_bars).length;
       workingState = resizePattern(workingState, decision.phrase_bars);
-      const resize = { kind: "resize", before_bars: before, after_bars: decision.phrase_bars, removed_notes: removedNotes };
+      const resize = { kind: "resize" as const, before_bars: before, after_bars: decision.phrase_bars, removed_notes: removedNotes };
       result.applied_changes.push(resize);
       historyEntry.applied_changes.push(`Changed phrase length from ${before} ${before === 1 ? "bar" : "bars"} to ${decision.phrase_bars} ${decision.phrase_bars === 1 ? "bar" : "bars"}`);
     }
@@ -49,7 +56,7 @@ export async function runPatternRequest({ initialState, request, decide, estimat
     const sentState = stateForJev(workingState, request);
     const decision = await decide(sentState, pass, { relevant_instruments: relevantInstruments });
     const applied = applyPatternAnswers(workingState, decision.answers, request, { maxOperations: 1, recordHistory: false });
-    const passRecord = { pass, sent_state: sentState, ...decision, result: applied.result };
+    const passRecord: PatternPass = { pass, sent_state: sentState, ...decision, result: applied.result };
     passes.push(passRecord);
     await onPass(passRecord);
 

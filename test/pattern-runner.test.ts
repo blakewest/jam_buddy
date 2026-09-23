@@ -1,12 +1,13 @@
+import type { JevAnswers } from "../src/core/pattern/state.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPatternState } from "../src/core/pattern/state.js";
 import { runPatternRequest } from "../src/core/pattern/runner.js";
 
-const choice = (value, probabilities) => ({ type: "choice", choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
-const noReset = { type: "noul", noul: 0 };
+const choice = (value: string, probabilities: Record<string, number>) => ({ type: "choice" as const, choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
+const noReset = { type: "noul" as const, noul: 0 };
 
-function addKick(slot, confidence = 0.9) {
+function addKick(slot: number, confidence = 0.9) {
   const positions = ["beat_1", "beat_1_e", "beat_1_and", "beat_1_a", "beat_2", "beat_2_e", "beat_2_and", "beat_2_a", "beat_3", "beat_3_e", "beat_3_and", "beat_3_a", "beat_4", "beat_4_e", "beat_4_and", "beat_4_a"];
   const action = `add_kick_at_${positions[slot - 1]}`;
   return {
@@ -22,10 +23,10 @@ const noChange = {
   addition_kick_velocity: choice("layer_3", { layer_3: 1 }),
 };
 
-const response = answers => ({ answers, model: "test-jev", usage: { input_tokens: 10, output_tokens: 2 }, question_count: 3, latency_ms: 20 });
+const response = (answers: JevAnswers) => ({ answers, model: "test-jev", usage: { input_tokens: 10, output_tokens: 2 }, question_count: 3, latency_ms: 20 });
 
 test("four passes each see the preceding pattern and produce one history entry", async () => {
-  const seenCounts = [];
+  const seenCounts: number[] = [];
   const slots = [1, 5, 9, 13];
   const completed = await runPatternRequest({
     initialState: createPatternState(),
@@ -113,7 +114,7 @@ test("a whole-pattern reset stops after one pass", async () => {
   const completed = await runPatternRequest({
     initialState,
     request: "wipe it",
-    decide: async () => { calls++; return response({ ...noChange, reset_pattern: { type: "noul", noul: 0.95 } }); },
+    decide: async () => { calls++; return response({ ...noChange, reset_pattern: { type: "noul" as const, noul: 0.95 } }); },
   });
   assert.equal(calls, 1);
   assert.deepEqual(completed.state.pattern.notes, []);

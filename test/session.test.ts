@@ -1,3 +1,4 @@
+import type { TimingState, TimingRequestRow } from "../src/core/timing/session.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSession, advanceSession, buildState, ingestEvent, applyDecision, makeRequest, expectedAction, summarize, validateRecording, makeFixture } from "../src/core/timing/session.js";
@@ -54,7 +55,7 @@ test("late, superseded, and previous-run responses have no effect", () => {
 });
 
 test("explicit policy treats the one-second boundary correctly", () => {
-  const state = { piano: { recent_events: [{ type: "note_on", velocity: 80 }], silent_for_ms: 999 }, drums: { status: "stopped", scheduled_start: false } };
+  const state: TimingState = { piano: { recent_events: [{ type: "note_on", velocity: 80, note: 60, time_ms: 0 }], silent_for_ms: 999 }, drums: { status: "stopped", scheduled_start: false } };
   assert.equal(expectedAction(state), "start_next_bar");
   state.drums.scheduled_start = true;
   assert.equal(expectedAction(state), "keep_current");
@@ -63,7 +64,7 @@ test("explicit policy treats the one-second boundary correctly", () => {
 });
 
 test("metrics keep failures separate from successful durations", () => {
-  const rows = [100, 200, 300, 400, 500].map(round_trip_ms => ({ round_trip_ms, response: { choice: "keep_current" }, expected: "keep_current" }));
+  const rows: Partial<TimingRequestRow>[] = [100, 200, 300, 400, 500].map(round_trip_ms => ({ round_trip_ms, response: { type: "choice", choice: "keep_current" }, expected: "keep_current" }));
   rows.push({ error: "timeout", round_trip_ms: 2000 });
   const m = summarize(rows);
   assert.equal(m.median, 300);

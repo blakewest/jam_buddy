@@ -1,4 +1,6 @@
-import { INSTRUMENTS, POSITIONS } from "../core/pattern/state.js";
+import { INSTRUMENTS, POSITIONS, type Instrument, type PatternJevState, type Position } from "../core/pattern/state.js";
+type PartNote = PatternJevState["pattern"]["parts"][Instrument][number] & { instrument: Instrument };
+type Question = { type: "choice" | "noul"; instructions: unknown; criteria: Record<string, unknown> };
 
 const inspect = ["request", "pattern.bars", "pattern.parts", "music_reference", "recent_history"];
 const context = "Make the next single-note edit that moves `pattern` closer to the current `request`. If the pattern already fulfills the request, choose no edits. The application will send another pass with the updated pattern when more work remains. The current request is authoritative; use `recent_history` only to resolve references such as 'that' or 'again'.";
@@ -52,7 +54,7 @@ export const PLANNING_QUESTIONS = {
       true: { meaning: `${instrumentCriteria[instrument].sound} notes are involved in the requested change` },
       false: { meaning: `${instrumentCriteria[instrument].sound} notes are unrelated to the requested change` },
     },
-  }])),
+  }])) as unknown as Record<`involves_${Instrument}`, Question>,
 };
 const velocityCriteria = {
   layer_1: { strength: "Very soft", midi_range: "1-25" },
@@ -99,13 +101,13 @@ const velocityChangeCriteria = {
   increase_2: { velocity_layer_delta: 2 },
 };
 
-function notesFromParts(state) {
+function notesFromParts(state: PatternJevState): PartNote[] {
   return INSTRUMENTS.flatMap(instrument => state.pattern.parts[instrument].map(note => ({ ...note, instrument })));
 }
 
-function additionCriteria(state, instrument) {
+function additionCriteria(state: PatternJevState, instrument: Instrument) {
   const occupied = new Set(notesFromParts(state).map(note => `${note.instrument}:${note.bar}:${note.position}`));
-  const criteria = { no_addition: { meaning: "The current pattern already satisfies the request, or the next edit should remove or modify an existing note." } };
+  const criteria: Record<string, unknown> = { no_addition: { meaning: "The current pattern already satisfies the request, or the next edit should remove or modify an existing note." } };
   for (let bar = 1; bar <= state.pattern.bars; bar++) {
     for (const position of POSITIONS) {
       if (occupied.has(`${instrument}:${bar}:${position}`)) continue;
@@ -119,7 +121,7 @@ function additionCriteria(state, instrument) {
   return criteria;
 }
 
-function additionQuestions(state, instrument) {
+function additionQuestions(state: PatternJevState, instrument: Instrument) {
   return {
     [`addition_${instrument}_action`]: {
       type: "choice",
@@ -139,8 +141,8 @@ function additionQuestions(state, instrument) {
   };
 }
 
-function noteQuestions(note) {
-  const instructions = extra => ({ note: { ...note }, context, ...extra });
+function noteQuestions(note: PartNote) {
+  const instructions = (extra: Record<string, string>) => ({ note: { ...note }, context, ...extra });
   return {
     [`${note.id}_operation`]: {
       type: "choice",
@@ -175,9 +177,9 @@ function noteQuestions(note) {
   };
 }
 
-export function buildPatternQuestions(state, relevantInstruments = INSTRUMENTS) {
+export function buildPatternQuestions(state: PatternJevState, relevantInstruments: readonly Instrument[] = INSTRUMENTS): Record<string, { type: "choice" | "noul"; instructions: unknown; criteria: Record<string, unknown> }> {
   const selected = INSTRUMENTS.filter(instrument => relevantInstruments.includes(instrument));
-  const questions = {
+  const questions: Record<string, { type: "choice" | "noul"; instructions: unknown; criteria: Record<string, unknown> }> = {
     reset_pattern: {
       type: "noul",
       instructions: {

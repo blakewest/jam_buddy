@@ -1,30 +1,42 @@
 import { CONFIG, makeFixture, createSession, advanceSession, buildState, makeRequest, expectedAction, applyDecision, fixtureBetween, drumWindows, drumHitsBetween } from "./session.js";
+import type { DrumHit, MidiEvent, Recording, Session, TimingAnswer, TimingRequestRow, TimingState } from "./session.js";
 
-export async function requestDecision(state, signal) {
+export type RunSnapshot = { now: number; session: Session; recording: Recording; active: boolean; mode: "mock" | "live" | "replay" };
+export type TimingAudio = { nowMs: () => number; isRunning: () => boolean; schedulePiano: (event: MidiEvent) => void; scheduleDrum: (hit: DrumHit) => void; stopDrums: () => void; stopAll: () => void; start: () => Promise<void> };
+export type DecisionResponse = { answer: TimingAnswer; model: string; usage?: Record<string, number> };
+type RunOptions = { mode: "mock" | "live" | "replay"; audio: TimingAudio; recording?: Recording; durationMs?: number; requestDecision?: (state: TimingState, signal: AbortSignal) => Promise<DecisionResponse>; onUpdate?: (snapshot: RunSnapshot) => void; onFinish?: (recording: Recording, reason: string, mode: RunOptions["mode"]) => void; autoTimers?: boolean };
+type RequestError = Error & { status?: number; code?: string; retryMs?: number };
+
+export async function requestDecision(state: TimingState, signal: AbortSignal): Promise<DecisionResponse> {
   const response = await fetch("/api/decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state }), signal });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.error || `HTTP ${response.status}`);
+    const error: RequestError = new Error(payload.error || `HTTP ${response.status}`);
     error.status = response.status;
     error.code = payload.code;
     const retry = response.headers.get("Retry-After");
     error.retryMs = retry ? Math.max(0, Number.isFinite(Number(retry)) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 0;
     throw error;
   }
-  return payload;
+  return payload as DecisionResponse;
 }
 
-export function createRun({ mode, audio, recording: source, durationMs = 60000, requestDecision: decide = requestDecision, onUpdate = () => {}, onFinish = () => {}, autoTimers = true }) {
+export function createRun({ mode, audio, recording: source, durationMs = 60000, requestDecision: decide = requestDecision, onUpdate = () => {}, onFinish = () => {}, autoTimers = true }: RunOptions) {
   const session = createSession(crypto.randomUUID(), source?.fixture ?? makeFixture());
-  const recording = mode === "replay" ? source : {
+  const recording: Recording = mode === "replay" ? source! : {
     version: 1, mode, created_at: new Date().toISOString(), duration_ms: 0, config: CONFIG, fixture: session.fixture,
     environment: typeof navigator === "undefined" ? "Node test" : navigator.userAgent,
     requests: [], actions: [], skipped_ticks: 0, backoff_ticks: 0, scheduler_late_hits: 0, scheduler_max_late_ms: 0,
   };
   const duration = mode === "replay" ? recording.duration_ms : Math.min(durationMs, CONFIG.max_duration_ms);
   const replayWindows = mode === "replay" ? drumWindows(recording.actions, duration) : null;
-  let active = false, cursor = 0, nextId = 0, busy = false, controller = null, currentRequest = null;
-  let schedulerTimer, pollTimer, timeoutTimer, retryAt = 0, failures = 0;
+  let active = false, cursor = 0, nextId = 0, busy = false;
+  let controller: AbortController | null = null;
+  let currentRequest: TimingRequestRow | null = null;
+  let schedulerTimer: ReturnType<typeof setInterval> | undefined;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryAt = 0, failures = 0;
   const clock = () => Math.min(duration, Math.max(0, audio.nowMs()));
 
   function tick() {
@@ -48,7 +60,7 @@ export function createRun({ mode, audio, recording: source, durationMs = 60000, 
     if (now >= duration) stop("Run complete.");
   }
 
-  function noteLateness(time, now) {
+  function noteLateness(time: number, now: number) {
     if (mode !== "replay" && time < now - 1) {
       recording.scheduler_late_hits++;
       recording.scheduler_max_late_ms = Math.max(recording.scheduler_max_late_ms, now - time);
@@ -62,16 +74,16 @@ export function createRun({ mode, audio, recording: source, durationMs = 60000, 
     if (now < retryAt) { recording.backoff_ticks++; return; }
     advanceSession(session, now);
     const state = buildState(session, now);
-    const row = { ...makeRequest(session, now, ++nextId), state, expected: expectedAction(state), sent_at_ms: now, request_bytes: new TextEncoder().encode(JSON.stringify({ state })).length };
+    const row: TimingRequestRow = { ...makeRequest(session, now, ++nextId), state, expected: expectedAction(state), sent_at_ms: now, request_bytes: new TextEncoder().encode(JSON.stringify({ state })).length };
     const sent = performance.now();
     busy = true;
     currentRequest = row;
     controller = new AbortController();
     try {
-      let response;
+      let response: DecisionResponse;
       if (mode === "mock") response = { answer: { type: "choice", choice: row.expected, confidence: 1, probabilities: { [row.expected]: 1 } }, model: "deterministic-fixture-rule" };
       else {
-        const timeout = new Promise((_, reject) => {
+        const timeout = new Promise<never>((_, reject) => {
           timeoutTimer = setTimeout(() => { controller?.abort(); reject(new Error("Request timed out after 2 seconds.")); }, 2000);
         });
         response = await Promise.race([decide(state, controller.signal), timeout]);
@@ -92,7 +104,8 @@ export function createRun({ mode, audio, recording: source, durationMs = 60000, 
       recording.requests.push(row);
       failures = 0;
       retryAt = 0;
-    } catch (error) {
+    } catch (cause) {
+      const error = cause as RequestError;
       if (!active || currentRequest !== row) return;
       row.received_ms = clock();
       row.round_trip_ms = performance.now() - sent;
@@ -100,7 +113,7 @@ export function createRun({ mode, audio, recording: source, durationMs = 60000, 
       recording.requests.push(row);
       failures++;
       retryAt = clock() + Math.max(Math.min(8000, 1000 * 2 ** (failures - 1)), error.retryMs || 0);
-      if ([401, 403].includes(error.status) || error.code === "missing_api_key") stop(`Live run ended: ${error.message}`);
+      if ((error.status === 401 || error.status === 403) || error.code === "missing_api_key") stop(`Live run ended: ${error.message}`);
     } finally {
       clearTimeout(timeoutTimer);
       busy = false;

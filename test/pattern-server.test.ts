@@ -1,30 +1,32 @@
+import type { JevAnswers } from "../src/core/pattern/state.js";
+import type { AddressInfo } from "node:net";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "../server.mjs";
+import { createServer } from "../server.js";
 import { createPatternState, stateForJev } from "../src/core/pattern/state.js";
 
 const state = stateForJev(createPatternState(), "Put a strong kick on beat one");
 
-async function withServer(run, options = {}) {
+async function withServer(run: (url: string) => Promise<void>, options: Parameters<typeof createServer>[0] = {}) {
   const server = createServer({ apiKey: "pattern-test-secret", ...options });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const url = `http://127.0.0.1:${server.address().port}`;
-  try { await run(url); } finally { await new Promise(resolve => server.close(resolve)); }
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try { await run(url); } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 }
 
-const post = (url, payload = { state, instruments: ["kick"] }, headers = {}) => fetch(`${url}/api/pattern-decision`, {
+const post = (url: string, payload: unknown = { state, instruments: ["kick"] }, headers = {}) => fetch(`${url}/api/pattern-decision`, {
   method: "POST",
   headers: { "Content-Type": "application/json", Origin: url, ...headers },
   body: JSON.stringify(payload),
 });
 
-const postPlan = (url, payload = { state }) => fetch(`${url}/api/pattern-plan`, {
+const postPlan = (url: string, payload: unknown = { state }) => fetch(`${url}/api/pattern-plan`, {
   method: "POST",
   headers: { "Content-Type": "application/json", Origin: url },
   body: JSON.stringify(payload),
 });
 
-function answerQuestions(questions) {
+function answerQuestions(questions: Record<string, { type: string; criteria: Record<string, unknown> }>): JevAnswers {
   return Object.fromEntries(Object.entries(questions).map(([key, question]) => {
     if (question.type === "noul") return [key, { type: "noul", noul: 0.1 }];
     const choice = Object.keys(question.criteria)[0];
@@ -44,8 +46,8 @@ test("pattern proxy sends one dynamic structured request and returns every answe
   }, { fetchImpl: async (url, options) => {
     calls++;
     assert.equal(url, "https://api.typesafe.ai/v1/systemone");
-    assert.equal(options.headers.Authorization, "Bearer pattern-test-secret");
-    const payload = JSON.parse(options.body);
+    assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer pattern-test-secret");
+    const payload = JSON.parse(String(options?.body));
     assert.deepEqual(payload.state, state);
     assert.equal(payload.model, "jev-latest");
     assert.equal(Object.keys(payload.questions).length, 3);
@@ -66,7 +68,7 @@ test("pattern proxy accepts one eight-change history entry", async () => {
   await withServer(async url => {
     assert.equal((await post(url, { state: stateWithHistory, instruments: ["kick"] })).status, 200);
   }, { fetchImpl: async (_url, options) => {
-    const payload = JSON.parse(options.body);
+    const payload = JSON.parse(String(options?.body));
     return Response.json({ model: "test-jev", answers: answerQuestions(payload.questions), usage: {} });
   } });
 });
@@ -81,7 +83,7 @@ test("planning proxy returns edit count, phrase length, and relevant instruments
     assert.deepEqual(body.relevant_instruments, ["snare"]);
     assert.equal(body.question_count, 6);
   }, { fetchImpl: async (_url, options) => {
-    const payload = JSON.parse(options.body);
+    const payload = JSON.parse(String(options?.body));
     assert.deepEqual(Object.keys(payload.questions.operation_count.criteria), Array.from({ length: 9 }, (_, count) => `operations_${count}`));
     const answers = answerQuestions(payload.questions);
     answers.operation_count = { type: "choice", choice: "operations_1", probabilities: { operations_1: 1 }, confidence: 1 };
@@ -123,4 +125,32 @@ test("pattern proxy sanitizes upstream failures and preserves retry timing", asy
     assert.equal(response.headers.get("Retry-After"), "4");
     assert.ok(!(await response.text()).includes("pattern-test-secret"));
   }, { fetchImpl: async () => new Response("pattern-test-secret", { status: 429, headers: { "Retry-After": "4" } }) });
+});
+
+test("request tree proxy validates nodes and small state, and serves registered kit assets", async () => {
+  await withServer(async url => {
+    const treePost = (payload: unknown) => fetch(`${url}/api/request-decision`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const state = { request: "use 808", kit_id: "acoustic", recent_history: [] };
+    assert.equal((await treePost({ node_id: "root", state })).status, 200);
+    assert.equal((await treePost({ node_id: "__proto__", state })).status, 400);
+    assert.equal((await treePost({ node_id: "change_kit", state: { ...state, kit_id: "linn" } })).status, 400);
+    assert.equal((await treePost({ node_id: "root", state: { ...state, recent_history: Array(9).fill({}) } })).status, 400);
+    for (const kit of ["tr_808", "tr_505"]) {
+      const response = await fetch(`${url}/assets/${kit}/kick.wav`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Content-Type"), "audio/wav");
+    }
+    assert.equal((await fetch(`${url}/assets/linn/kick.wav`)).status, 404);
+  }, { fetchImpl: async (_url, options) => {
+    const payload = JSON.parse(String(options?.body));
+    assert.equal(payload.state.pattern, undefined);
+    return Response.json({ model: "test", answers: answerQuestions(payload.questions) });
+  } });
+});
+
+test("request tree rejects invalid upstream choices", async () => {
+  await withServer(async url => {
+    const response = await fetch(`${url}/api/request-decision`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ node_id: "change_kit", state: { request: "808", kit_id: "acoustic", recent_history: [] } }) });
+    assert.equal(response.status, 502);
+  }, { fetchImpl: async () => Response.json({ model: "test", answers: { selection: { type: "choice", choice: "invalid", probabilities: { invalid: 1 } } } }) });
 });

@@ -1,18 +1,31 @@
-export function createAudio() {
-  let context, master, epoch = 0, volume = 0.35, noise;
-  let pedal = false;
-  const voices = new Set();
-  const notes = new Map();
-  const released = new Set();
+import type { MidiEvent, DrumHit } from "../../core/timing/session.js";
 
-  function timeAt(ms) { return epoch + ms / 1000; }
-  function voice(kind, source, gain, start, end = Infinity) {
+interface Voice {
+  kind: "drum" | "piano";
+  source: OscillatorNode | AudioBufferSourceNode;
+  gain: GainNode;
+  start: number;
+  end: number;
+}
+
+export function createAudio() {
+  let context: AudioContext;
+  let master: GainNode;
+  let noise: AudioBuffer;
+  let epoch = 0, volume = 0.35;
+  let pedal = false;
+  const voices = new Set<Voice>();
+  const notes = new Map<number, Voice>();
+  const released = new Set<Voice>();
+
+  function timeAt(ms: number) { return epoch + ms / 1000; }
+  function voice(kind: Voice["kind"], source: Voice["source"], gain: GainNode, start: number, end = Infinity) {
     const entry = { kind, source, gain, start, end };
     voices.add(entry);
     source.onended = () => { voices.delete(entry); source.disconnect(); gain.disconnect(); };
     return entry;
   }
-  function release(entry, at) {
+  function release(entry: Voice | undefined, at: number) {
     if (!entry || entry.end <= at) return;
     const time = Math.max(context.currentTime, at);
     entry.gain.gain.cancelAndHoldAtTime(time);
@@ -50,10 +63,10 @@ export function createAudio() {
     },
     nowMs: () => context ? (context.currentTime - epoch) * 1000 : 0,
     isRunning: () => context?.state === "running",
-    setVolume(value) { volume = value; if (master) master.gain.setTargetAtTime(value, context.currentTime, 0.015); },
+    setVolume(value: number) { volume = value; if (master) master.gain.setTargetAtTime(value, context.currentTime, 0.015); },
     getInfo: () => context ? { sample_rate: context.sampleRate, base_latency_ms: context.baseLatency * 1000, output_latency_ms: (context.outputLatency || 0) * 1000 } : {},
     stopDrums, stopAll,
-    schedulePiano(event) {
+    schedulePiano(event: MidiEvent) {
       const at = Math.max(context.currentTime, timeAt(event.time_ms));
       if (event.type === "sustain") {
         pedal = event.value >= 64;
@@ -77,11 +90,12 @@ export function createAudio() {
       source.start(at);
       notes.set(event.note, voice("piano", source, gain, at));
     },
-    scheduleDrum(hit) {
+    scheduleDrum(hit: DrumHit) {
       const at = Math.max(context.currentTime, timeAt(hit.time_ms));
       const duration = hit.instrument === "kick" ? 0.22 : hit.instrument === "snare" ? 0.15 : 0.045;
       const gain = context.createGain();
-      let source, filter;
+      let source: Voice["source"];
+      let filter: BiquadFilterNode | undefined;
       if (hit.instrument === "kick") {
         source = context.createOscillator();
         source.frequency.setValueAtTime(140, at);
@@ -99,8 +113,8 @@ export function createAudio() {
       source.start(at); source.stop(at + duration + 0.01);
       const entry = voice("drum", source, gain, at, at + duration + 0.01);
       const ended = source.onended;
-      source.onended = () => { ended(); filter?.disconnect(); };
-      if (Number.isFinite(hit.stop_ms)) release(entry, timeAt(hit.stop_ms));
+      source.onended = event => { ended?.call(source, event); filter?.disconnect(); };
+      if (hit.stop_ms !== undefined && Number.isFinite(hit.stop_ms)) release(entry, timeAt(hit.stop_ms));
     },
   };
 }

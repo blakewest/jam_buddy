@@ -1,16 +1,17 @@
+import type { Instrument, JevAnswers, JevChoiceAnswer, JevNoulAnswer } from "../src/core/pattern/state.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { appendHistory, applyPatternAnswers, createPatternState, resizePattern, stateForJev } from "../src/core/pattern/state.js";
 
-const choice = (value, probabilities = { no_op: 0 }) => ({ type: "choice", choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
-const noul = value => ({ type: "noul", noul: value });
-const note = (id, instrument, slot, velocity_layer = 3, bar = 1) => ({ id, instrument, bar, slot, velocity_layer });
+const choice = (value: string, probabilities: Record<string, number> = { no_op: 0 }): JevChoiceAnswer => ({ type: "choice", choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
+const noul = (value: number): JevNoulAnswer => ({ type: "noul", noul: value });
+const note = (id: string, instrument: Instrument, slot: number, velocity_layer = 3, bar = 1) => ({ id, instrument, bar, slot, velocity_layer });
 
-function noReset(extra = {}) {
+function noReset(extra: JevAnswers = {}) {
   return { reset_pattern: noul(0), ...extra };
 }
 
-function modify(id, operationProbability, timing = "no_change", velocity = "no_change", instrument = "keep_current") {
+function modify(id: string, operationProbability: number, timing = "no_change", velocity = "no_change", instrument = "keep_current") {
   return {
     [`${id}_operation`]: choice("modify", { remove: 0, modify: operationProbability, no_op: 1 - operationProbability }),
     [`${id}_timing`]: choice(timing, { [timing]: 1 }),
@@ -19,7 +20,7 @@ function modify(id, operationProbability, timing = "no_change", velocity = "no_c
   };
 }
 
-function remove(id, probability, speculative = {}) {
+function remove(id: string, probability: number, speculative: { timing?: string; velocity?: string; instrument?: string } = {}) {
   return {
     [`${id}_operation`]: choice("remove", { remove: probability, modify: 0, no_op: 1 - probability }),
     [`${id}_timing`]: choice(speculative.timing ?? "later_4", { later_4: 1 }),
@@ -28,7 +29,7 @@ function remove(id, probability, speculative = {}) {
   };
 }
 
-function addition(_lane, confidence, instrument, slot, velocity, bar = 1) {
+function addition(_lane: number, confidence: number, instrument: Instrument, slot: number, velocity: number, bar = 1) {
   const positions = ["beat_1", "beat_1_e", "beat_1_and", "beat_1_a", "beat_2", "beat_2_e", "beat_2_and", "beat_2_a", "beat_3", "beat_3_e", "beat_3_and", "beat_3_a", "beat_4", "beat_4_e", "beat_4_and", "beat_4_a"];
   const action = `add_${instrument}_in_bar_${bar}_at_${positions[slot - 1]}`;
   return {
@@ -39,13 +40,13 @@ function addition(_lane, confidence, instrument, slot, velocity, bar = 1) {
 
 test("a new pattern is an empty one-bar phrase", () => {
   const state = createPatternState();
-  assert.deepEqual(state.pattern, { bars: 1, slots_per_bar: 16, notes: [] });
+  assert.deepEqual(state.pattern, { bars: 1, slots_per_bar: 16, notes: [], kit_id: "acoustic" });
   assert.deepEqual(state.recent_history, []);
 });
 
 test("resizing preserves notes when expanding and removes truncated bars when shrinking", () => {
   const state = createPatternState({ bars: 2, notes: [note("note_1", "kick", 1), note("note_2", "snare", 5, 4, 2)] });
-  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, slots_per_bar: 16, notes: state.pattern.notes });
+  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, slots_per_bar: 16, notes: state.pattern.notes, kit_id: "acoustic" });
   assert.deepEqual(resizePattern(state, 1).pattern.notes, [note("note_1", "kick", 1)]);
 });
 
@@ -67,7 +68,7 @@ test("only the four highest-confidence alterations are applied", () => {
   [0.51, 0.92, 0.73, 0.84, 0.65].forEach((probability, index) => Object.assign(answers, remove(`note_${index + 1}`, probability)));
   const applied = applyPatternAnswers(state, answers, "remove most of these");
   assert.deepEqual(applied.state.pattern.notes.map(item => item.id), ["note_1"]);
-  assert.deepEqual(applied.result.applied_changes.map(item => item.note_id), ["note_2", "note_4", "note_3", "note_5"]);
+  assert.deepEqual(applied.result.applied_changes.map(item => "note_id" in item ? item.note_id : undefined), ["note_2", "note_4", "note_3", "note_5"]);
   assert.equal(applied.result.ignored_changes.length, 1);
 });
 
@@ -99,6 +100,7 @@ test("a modification cannot collide with an occupied cell", () => {
   const applied = applyPatternAnswers(state, answers, "move the second kick earlier");
   assert.deepEqual(applied.state.pattern.notes, state.pattern.notes);
   assert.equal(applied.result.rejected_changes.length, 1);
+  assert.ok("reason" in applied.result.rejected_changes[0]);
   assert.equal(applied.result.rejected_changes[0].reason, "collision");
 });
 
@@ -106,6 +108,7 @@ test("a confident addition choice is applied without a separate Noul gate", () =
   const answers = noReset(addition(1, 0.88, "kick", 5, 4));
   const applied = applyPatternAnswers(createPatternState({ notes: [note("note_1", "kick", 1, 4)] }), answers, "put kicks on every beat");
   assert.deepEqual(applied.state.pattern.notes, [note("note_1", "kick", 1, 4), note("note_2", "kick", 5, 4)]);
+  assert.ok("score" in applied.result.applied_changes[0]);
   assert.equal(applied.result.applied_changes[0].score, 0.88);
 });
 

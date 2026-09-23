@@ -1,15 +1,17 @@
+import type { MidiEvent, DrumHit, TimingState, Recording } from "../src/core/timing/session.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRun } from "../src/core/timing/runner.js";
 import { makeFixture, CONFIG } from "../src/core/timing/session.js";
 
 function fakeAudio() {
-  return { time: 0, piano: [], drums: [], stops: 0, start: async () => {}, nowMs() { return this.time; }, schedulePiano(e) { this.piano.push(e); }, scheduleDrum(e) { this.drums.push(e); }, stopDrums() { this.stops++; }, stopAll() {}, isRunning: () => true };
+  return { time: 0, piano: [] as MidiEvent[], drums: [] as DrumHit[], stops: 0, start: async () => {}, nowMs() { return this.time; }, schedulePiano(e: MidiEvent) { this.piano.push(e); }, scheduleDrum(e: DrumHit) { this.drums.push(e); }, stopDrums() { this.stops++; }, stopAll() {}, isRunning: () => true };
 }
 
 test("slow decisions do not queue and stopping invalidates late answers", async () => {
   const audio = fakeAudio();
-  let resolve, calls = 0;
+  let resolve!: (value: { answer: { type: "choice"; choice: "start_next_bar" }; model: string }) => void;
+  let calls = 0;
   const run = createRun({ mode: "live", audio, autoTimers: false, requestDecision: () => { calls++; return new Promise(done => { resolve = done; }); } });
   await run.start();
   audio.time = 4100;
@@ -21,18 +23,18 @@ test("slow decisions do not queue and stopping invalidates late answers", async 
   assert.equal(run.recording.skipped_ticks, 1);
   assert.ok(audio.piano.length > 0);
   run.stop();
-  resolve({ answer: { choice: "start_next_bar" }, model: "test" });
+  resolve({ answer: { type: "choice", choice: "start_next_bar" }, model: "test" });
   await pending;
   assert.equal(run.recording.actions.length, 0);
 });
 
 test("replay schedules recorded intervals and makes no decisions", async () => {
   const audio = fakeAudio();
-  const recording = { version: 1, mode: "live", duration_ms: 16000, config: CONFIG, fixture: makeFixture(), requests: [], actions: [
-    { action: "start_next_bar", received_ms: 5200, effective_ms: 6000 },
-    { action: "stop", received_ms: 7300, effective_ms: 7300 },
-    { action: "start_next_bar", received_ms: 8100, effective_ms: 10000 },
-    { action: "stop", received_ms: 8500, effective_ms: 8500 },
+  const recording: Recording = { version: 1, mode: "live", duration_ms: 16000, skipped_ticks: 0, backoff_ticks: 0, scheduler_late_hits: 0, scheduler_max_late_ms: 0, config: CONFIG, fixture: makeFixture(), requests: [], actions: [
+    { accepted: true, action: "start_next_bar", received_ms: 5200, effective_ms: 6000 },
+    { accepted: true, action: "stop", received_ms: 7300, effective_ms: 7300 },
+    { accepted: true, action: "start_next_bar", received_ms: 8100, effective_ms: 10000 },
+    { accepted: true, action: "stop", received_ms: 8500, effective_ms: 8500 },
   ] };
   const run = createRun({ mode: "replay", audio, recording, autoTimers: false, requestDecision: () => { throw new Error("Replay must not call the API"); } });
   await run.start();
@@ -59,7 +61,7 @@ test("mock run reveals real-time snapshots and records starts/stops", async () =
 test("transient upstream 503 preserves playback and retries fresh state after backoff", async () => {
   const audio = fakeAudio();
   let calls = 0;
-  const run = createRun({ mode: "live", audio, autoTimers: false, requestDecision: async () => { calls++; const error = new Error("Temporary outage"); error.status = 503; throw error; } });
+  const run = createRun({ mode: "live", audio, autoTimers: false, requestDecision: async () => { calls++; const error = Object.assign(new Error("Temporary outage"), { status: 503 }); throw error; } });
   await run.start();
   await run.poll();
   assert.equal(run.active, true);
@@ -72,10 +74,10 @@ test("transient upstream 503 preserves playback and retries fresh state after ba
 
 test("a transient rate limit respects retry-after without queuing snapshots", async () => {
   const audio = fakeAudio();
-  const seen = [];
+  const seen: TimingState[] = [];
   const run = createRun({ mode: "live", audio, autoTimers: false, requestDecision: async state => {
     seen.push(state);
-    if (seen.length === 1) { const error = new Error("Rate limited"); error.status = 429; error.retryMs = 3000; throw error; }
+    if (seen.length === 1) { const error = Object.assign(new Error("Rate limited"), { status: 429, retryMs: 3000 }); throw error; }
     return { answer: { type: "choice", choice: "keep_current" }, model: "test" };
   } });
   await run.start(); await run.poll();

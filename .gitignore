@@ -5,3 +5,6 @@
 docs/superpowers/
 recordings/
 skills-lock.json
+.worktrees/
+node_modules/
+dist/

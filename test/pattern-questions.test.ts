@@ -1,6 +1,7 @@
+import type { PatternNote } from "../src/core/pattern/state.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPatternQuestions, PLANNING_QUESTIONS } from "../src/ai/pattern-questions.mjs";
+import { buildPatternQuestions, PLANNING_QUESTIONS } from "../src/ai/pattern-questions.js";
 import { createPatternState, stateForJev } from "../src/core/pattern/state.js";
 
 const emptyState = stateForJev(createPatternState(), "Start a beat");
@@ -8,13 +9,13 @@ const emptyState = stateForJev(createPatternState(), "Start a beat");
 test("operation planning offers zero through eight atomic edits", () => {
   assert.deepEqual(Object.keys(PLANNING_QUESTIONS.operation_count.criteria), Array.from({ length: 9 }, (_, count) => `operations_${count}`));
   assert.match(PLANNING_QUESTIONS.operation_count.instructions.atomic_operation, /same note.*one operation/i);
-  assert.match(PLANNING_QUESTIONS.operation_count.criteria.operations_1.examples.join(" "), /move the first snare/i);
+  assert.match(PLANNING_QUESTIONS.operation_count.criteria.operations_1.examples!.join(" "), /move the first snare/i);
 });
 
 test("planning chooses phrase length and independently detects involved instruments", () => {
   assert.deepEqual(Object.keys(PLANNING_QUESTIONS), ["operation_count", "phrase_length", "involves_kick", "involves_snare", "involves_closed_hat", "involves_open_hat"]);
   assert.deepEqual(Object.keys(PLANNING_QUESTIONS.phrase_length.criteria), ["keep_current", "bars_1", "bars_2", "bars_3", "bars_4"]);
-  for (const instrument of ["kick", "snare", "closed_hat", "open_hat"]) assert.equal(PLANNING_QUESTIONS[`involves_${instrument}`].type, "noul");
+  for (const instrument of ["kick", "snare", "closed_hat", "open_hat"] as const) assert.equal(PLANNING_QUESTIONS[`involves_${instrument}`].type, "noul");
 });
 
 test("an empty four-bar pattern offers 64 positions for one planned instrument", () => {
@@ -36,17 +37,17 @@ test("occupied instrument-position additions are omitted", () => {
 });
 
 test("each existing note adds four questions with its full meaning", () => {
-  const note = { id: "note_7", instrument: "open_hat", bar: 1, slot: 16, velocity_layer: 2 };
+  const note: PatternNote = { id: "note_7", instrument: "open_hat", bar: 1, slot: 16, velocity_layer: 2 };
   const questions = buildPatternQuestions(stateForJev(createPatternState({ notes: [note] }), "change it"), ["open_hat"]);
   assert.equal(Object.keys(questions).length, 7);
   const sentNote = { id: "note_7", instrument: "open_hat", bar: 1, position: "beat_4_a", velocity_layer: 2 };
-  for (const suffix of ["operation", "timing", "velocity", "instrument"]) assert.deepEqual(questions[`note_7_${suffix}`].instructions.note, sentNote);
+  for (const suffix of ["operation", "timing", "velocity", "instrument"]) assert.deepEqual((questions[`note_7_${suffix}`].instructions as Record<string, unknown>).note, sentNote);
   assert.deepEqual(Object.keys(questions.note_7_operation.criteria), ["remove", "modify", "no_op"]);
   assert.deepEqual(Object.keys(questions.note_7_timing.criteria), ["earlier_4", "earlier_3", "earlier_2", "earlier_1", "no_change", "later_1", "later_2", "later_3", "later_4"]);
 });
 
 test("only notes from planned instruments receive edit questions", () => {
-  const notes = [
+  const notes: PatternNote[] = [
     { id: "note_4", instrument: "snare", bar: 1, slot: 5, velocity_layer: 4 },
     { id: "note_9", instrument: "kick", bar: 1, slot: 1, velocity_layer: 5 },
   ];

@@ -1,8 +1,9 @@
+import type { Pattern, PatternNote } from "../src/core/pattern/state.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { eventsForWindow, splitPatternWindow } from "../src/core/pattern/audio-schedule.js";
 
-const pattern = (bars, notes) => ({ bars, slots_per_bar: 16, notes });
+const pattern = (bars: number, notes: PatternNote[]): Pattern => ({ bars, slots_per_bar: 16, notes, kit_id: "acoustic" });
 
 test("a two-bar phrase repeats every four seconds", () => {
   const hits = eventsForWindow(pattern(2, [
@@ -30,5 +31,6 @@ test("a pending pattern remains pending before the phrase boundary", () => {
   const pendingPattern = pattern(4, [{ id: "note_2", instrument: "snare", bar: 1, slot: 1, velocity_layer: 4 }]);
   const result = splitPatternWindow({ activePattern, pendingPattern, fromTime: 0.1, toTime: 3.9, originTime: 0, boundaryTime: 4 });
   assert.equal(result.didSwap, false);
+  assert.ok(result.pendingPattern);
   assert.equal(result.pendingPattern.notes[0].instrument, "snare");
 });
