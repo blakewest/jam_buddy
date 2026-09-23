@@ -1,6 +1,6 @@
 # Jam Partner experiments
 
-Two local browser experiments for TypeSafe-powered musical interaction. No keyboard or microphone is needed.
+Local browser experiments for TypeSafe-powered musical interaction, with a groove audition library. No keyboard or microphone is needed.
 
 ## Run
 
@@ -13,7 +13,8 @@ npm start
 Open either page in Chrome:
 
 - http://127.0.0.1:3210/ — real-time MIDI fixture and start/stop timing test.
-- http://127.0.0.1:3210/pattern.html — stateful one-to-four-bar drum pattern builder.
+- http://127.0.0.1:3210/pattern.html — stateful one-to-eight-bar drum pattern builder.
+- http://127.0.0.1:3210/presets.html — audition 50 original source-audio clips and mark favorites locally.
 
 Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, then start the server. The key never reaches the browser. No npm dependencies are needed.
 
@@ -37,17 +38,19 @@ Use wired headphones and keep the tab visible. Hiding the tab ends the run so br
 
 ## Pattern builder
 
-The pattern builder starts with an empty 4/4 bar at 120 BPM and can expand to four bars. Type a request such as `Give me a rock beat in 3/4`, `Load a laid-back hip-hop beat`, or `Add a snare on beat 2`. Tempo is session state: presets inherit it, and the transport can change it from 40–240 BPM.
+The pattern builder starts with an empty 4/4 bar at 120 BPM and can expand to eight bars. Type a request such as `Give me a simple backbeat`, `Load a laid-back hip-hop beat`, or `Add a snare on beat 2`. Loading a preset replaces the current beat and sets its source tempo. The transport can then change it from 40–240 BPM.
 
-Every request first passes through one small TypeSafe routing question. The deterministic request tree sends edits through the existing atomic edit planner, preset requests through batched genre/meter/feel questions and bounded catalog selection, and unsupported requests to guidance generated from the registered capabilities.
+Every request first passes through one small TypeSafe routing question. The deterministic request tree separates editing, preset loading, clearing, shuffling, and unsupported requests. Clearing executes locally. Shuffling excludes the current preset and retains the previous search filters for requests like `No, something else`. Unsupported guidance comes from the registered capabilities.
 
-Each request starts with a planning call that chooses the phrase length, identifies the involved instruments, and estimates zero through eight atomic note operations. The app then generates edit questions only for those instruments and runs at most the estimated number of sequential passes. Each pass sees the pattern produced by the prior pass and applies at most one change. A no-edit response stops the sequence early. Whole-pattern reset requires at least 90% confidence. Collisions are rejected and shown in the inspector. While the loop plays, the final accepted pattern begins at the next phrase boundary.
+Relative velocity edits first use one structured interpretation call for operation, instrument, beats, bars, and subdivisions. Code then changes every matching note once. Other edits use a planning call for phrase length, involved instruments, and zero through eight atomic operations. Large patterns narrow by instrument/bar and then target note or addition before detailed questions are built. Each atomic pass sees the preceding result; a no-edit response stops early. Every API call is checked against question, choice, and context-size budgets. Collisions are rejected and shown in the inspector. While the loop plays, the final accepted pattern begins at the next phrase boundary; clearing stops it immediately.
 
-The current request is authoritative. Recent history is included only to resolve references such as “that” or “again,” so an older request cannot act as a competing instruction. Jev sees the loop grouped into kick, snare, closed-hat, and open-hat parts plus reference definitions for eighth notes, four-on-the-floor, and a backbeat. One request can make at most eight note changes; the raw inspector records every pass while the visible history keeps one row for the request.
+The current request is authoritative. The structured velocity interpreter sees no old history. The atomic planner includes recent history only to resolve references such as “that” or “again.” Jev sees nine drum lanes; source pitch articulations remain in playback state. Atomic requests can make at most eight changes, while structured velocity edits can affect all matching notes. The raw inspector records each step and visible history keeps one row per request.
 
-Patterns use 960 ticks per quarter note, preserve human timing and MIDI velocity, and support straight eighths, straight sixteenths, eighth-note triplets, and sixteenth-note triplets for editing. The page plays kick, snare, closed/open hi-hat, crash, high tom, mid tom, and floor tom samples from the public-domain Open Source Drumkit, with five velocity layers. Closed hats choke open hats. Pattern state and raw request/response history remain in browser IndexedDB and survive reloads.
+Patterns use 960 ticks per quarter note, preserve human timing and MIDI velocity (1–127), and support straight eighths, straight sixteenths, eighth-note triplets, and sixteenth-note triplets for editing. Playback uses a CC0 Virtuosity Drums subset with articulation-specific samples and velocity layers, loaded only as needed. Some source pitches use nearby articulations, documented in the kit manifest. Closing/pedal hats choke open hats. Pattern state and raw request/response history remain in browser IndexedDB and survive reloads.
 
-The starter catalog contains 12 presets across rock, pop, funk, jazz, blues, disco, hip-hop, electronic, reggae, Latin-inspired, and punk styles in 3/4, 4/4, and 6/8. Selected human-played presets adapt the CC BY 4.0 Groove MIDI Dataset; their source IDs are stored with the preset data. Other starter patterns are locally authored.
+The active catalog is exactly the ten approved source grooves plus the locally authored Simple Backbeat, all in 4/4. Jev chooses among matching presets using genre, feel, meter, tags, source tempo, and descriptions. Legacy demo presets are not selectable. Imported phrases retain up to eight source bars; audition clips play original audio, while the beat maker renders the matching MIDI with its own kit, so their timbres differ.
+
+The approved shortlist is recorded in `CURATED_GROOVE_IDS` in `src/core/pattern/audition-grooves.js`. Later Keep/Reject changes on the audition page are local browser preferences, not automatic changes to the active catalog. The bundled previews total about 140 MB but load only when played; the articulation kit totals about 23 MB. Asset sources and licenses are in `src/frontend/assets/ATTRIBUTION.md`.
 
 ## Modes
 

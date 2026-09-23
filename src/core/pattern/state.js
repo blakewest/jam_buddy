@@ -1,8 +1,9 @@
 import { describeTick, editPositions, tickForPosition, ticksPerBar, TICKS_PER_QUARTER, validMeter, velocityForLayer } from "./musical-time.js";
+import { defaultPitch, pitchForNote, validPitchForInstrument } from "./drum-pitches.js";
 
-export const INSTRUMENTS = Object.freeze(["kick", "snare", "closed_hat", "open_hat", "crash", "high_tom", "mid_tom", "floor_tom"]);
+export const INSTRUMENTS = Object.freeze(["kick", "snare", "closed_hat", "open_hat", "ride", "crash", "high_tom", "mid_tom", "floor_tom"]);
 export const DEFAULT_METER = Object.freeze({ numerator: 4, denominator: 4 });
-export const MAX_BARS = 4;
+export const MAX_BARS = 8;
 export const MAX_HISTORY = 8;
 export const MAX_OPERATIONS = 4;
 export const POSITIONS = Object.freeze(editPositions(DEFAULT_METER).map(item => item.id));
@@ -32,19 +33,22 @@ export function createPatternState(saved = {}) {
     bar: Number.isInteger(note.bar) ? note.bar : 1,
     tick: Number.isInteger(note.tick) ? note.tick : Number.isInteger(note.slot) ? (note.slot - 1) * TICKS_PER_QUARTER / 4 : Number.NaN,
     velocity: Number.isInteger(note.velocity) ? note.velocity : velocityForLayer(note.velocity_layer),
+    ...(note.midi_pitch === undefined ? {} : { midi_pitch: note.midi_pitch }),
   })).filter(note => note.bar >= 1 && note.bar <= bars && INSTRUMENTS.includes(note.instrument)
     && Number.isInteger(note.tick) && note.tick >= 0 && note.tick < ticksPerBar(meter)
-    && Number.isInteger(note.velocity) && note.velocity >= 1 && note.velocity <= 127) : [];
+    && Number.isInteger(note.velocity) && note.velocity >= 1 && note.velocity <= 127
+    && (note.midi_pitch === undefined || validPitchForInstrument(note.midi_pitch, note.instrument))) : [];
   return {
     pattern: { bars, meter, ticks_per_quarter: TICKS_PER_QUARTER, notes },
     recent_history: Array.isArray(saved.recent_history) ? clone(saved.recent_history).slice(-MAX_HISTORY) : [],
     next_note_id: Math.max(Number(saved.next_note_id) || 1, nextIdFor(notes)),
+    ...(saved.preset_context ? { preset_context: clone(saved.preset_context) } : {}),
   };
 }
 
 export function resizePattern(inputState, bars) {
   const state = createPatternState(inputState);
-  if (!Number.isInteger(bars) || bars < 1 || bars > MAX_BARS) throw new Error("Phrase length must be between one and four bars.");
+  if (!Number.isInteger(bars) || bars < 1 || bars > MAX_BARS) throw new Error("Phrase length must be between one and eight bars.");
   return { ...state, pattern: { ...state.pattern, bars, notes: state.pattern.notes.filter(note => note.bar <= bars) } };
 }
 
@@ -82,7 +86,7 @@ function velocityDelta(value) {
 function additionCandidate(answers, instrument, order) {
   const action = answers[`addition_${instrument}_action`];
   if (!action || action.choice === "no_addition") return null;
-  const match = /^add_([a-z_]+)_in_bar_([1-4])_at_(beat_\d+(?:_(?:e|and|a|triplet_[23]|sixteenth_triplet_[2-6]))?)$/.exec(action.choice);
+  const match = /^add_([a-z_]+)_in_bar_([1-8])_at_(beat_\d+(?:_(?:e|and|a|triplet_[23]|sixteenth_triplet_[2-6]))?)$/.exec(action.choice);
   if (!match) return null;
   const noAddition = action.probabilities?.no_addition;
   const score = Number.isFinite(noAddition) ? clamp(1 - noAddition, 0, 1) : clamp(Number(action.confidence) || 0, 0, 1);
@@ -122,15 +126,16 @@ function noteCandidate(answers, item, order, bars) {
       instrument: requestedInstrument === "keep_current" ? item.instrument : requestedInstrument,
       ...timing,
       velocity: clamp(item.velocity + velocityDelta(choice(answers, `${item.id}_velocity`, "no_change")) * 16, 1, 127),
+      ...(item.midi_pitch === undefined ? {} : { midi_pitch: requestedInstrument === "keep_current" || requestedInstrument === item.instrument ? item.midi_pitch : defaultPitch(requestedInstrument) }),
     };
   }
   return candidate;
 }
 
-const occupied = (notes, proposed, exceptId = null) => notes.some(item => item.id !== exceptId && item.instrument === proposed.instrument && item.bar === proposed.bar && item.tick === proposed.tick);
+const occupied = (notes, proposed, exceptId = null) => notes.some(item => item.id !== exceptId && item.instrument === proposed.instrument && item.bar === proposed.bar && item.tick === proposed.tick && pitchForNote(item) === pitchForNote(proposed));
 
 function validProposed(item, bars, meter) {
-  return INSTRUMENTS.includes(item.instrument) && Number.isInteger(item.bar) && item.bar >= 1 && item.bar <= bars && Number.isInteger(item.tick) && item.tick >= 0 && item.tick < ticksPerBar(meter) && Number.isInteger(item.velocity) && item.velocity >= 1 && item.velocity <= 127;
+  return INSTRUMENTS.includes(item.instrument) && Number.isInteger(item.bar) && item.bar >= 1 && item.bar <= bars && Number.isInteger(item.tick) && item.tick >= 0 && item.tick < ticksPerBar(meter) && Number.isInteger(item.velocity) && item.velocity >= 1 && item.velocity <= 127 && (item.midi_pitch === undefined || validPitchForInstrument(item.midi_pitch, item.instrument));
 }
 
 function describe(change) {

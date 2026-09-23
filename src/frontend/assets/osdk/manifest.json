@@ -3,8 +3,9 @@
   "source": "https://download.linuxaudio.org/musical-instrument-libraries/sfz/the_open_source_drumkit.tar.7z",
   "license": "Public Domain",
   "licenseNotice": "The original OSDK readme states that the samples and mappings are completely in the public domain.",
-  "instruments": ["kick", "snare", "closed_hat", "open_hat", "crash", "high_tom", "mid_tom", "floor_tom"],
+  "instruments": ["kick", "snare", "closed_hat", "open_hat", "ride", "crash", "high_tom", "mid_tom", "floor_tom"],
   "addedSamplePaths": {
+    "ride": ["ride/ride-mid-in1.wav", "ride/ride-mid-in3.wav", "ride/ride-mid-in5.wav", "ride/ride-mid-in8.wav", "ride/ride-mid-in11.wav"],
     "crash": ["crash/crash1.wav", "crash/crash6.wav", "crash/crash12.wav", "crash/crash18.wav", "crash/crash25.wav"],
     "high_tom": ["toms/small_tom_0-10_1.wav", "toms/small_tom_20-30_1.wav", "toms/small_tom_40-50_1.wav", "toms/small_tom_70-80_1.wav", "toms/small_tom_100_1.wav"],
     "mid_tom": ["toms/medium_tom_0-10_1.wav", "toms/medium_tom_20-30_1.wav", "toms/medium_tom_40-50_1.wav", "toms/medium_tom_70-80_2.wav", "toms/medium_tom_100_1.wav"],

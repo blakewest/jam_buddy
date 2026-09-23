@@ -1,6 +1,8 @@
 export const REQUEST_CATEGORIES = Object.freeze({
   edit_pattern: Object.freeze({ description: "edit the current beat", next_node: "edit_plan" }),
   load_preset: Object.freeze({ description: "pick a beat preset", next_node: "preset_search" }),
+  clear_pattern: Object.freeze({ description: "clear the whole beat", next_node: "pattern_clear" }),
+  shuffle_preset: Object.freeze({ description: "shuffle to another beat", next_node: "preset_shuffle" }),
   unsupported: Object.freeze({ description: "request something outside the available beat tools", next_node: null }),
 });
 

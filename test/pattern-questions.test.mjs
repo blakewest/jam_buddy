@@ -1,9 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPatternQuestions, PLANNING_QUESTIONS } from "../src/ai/pattern-questions.mjs";
+import { buildPatternQuestions, patternSummary, PLANNING_QUESTIONS } from "../src/ai/pattern-questions.mjs";
 import { createPatternState, stateForJev } from "../src/core/pattern/state.js";
 
 const emptyState = stateForJev(createPatternState(), "Start a beat");
+
+test("scope summaries retain timing and velocity needed to choose between bars", () => {
+  const sent = stateForJev(createPatternState({ bars: 2, notes: [
+    { id: "note_1", instrument: "snare", bar: 1, tick: 960, velocity: 50 },
+    { id: "note_2", instrument: "snare", bar: 2, tick: 2880, velocity: 100 },
+  ] }), "remove the snare on beat 4");
+  assert.deepEqual(patternSummary(sent).pattern.parts.snare, [
+    { bar: 1, notes: 1, hits: [[960, 50]] },
+    { bar: 2, notes: 1, hits: [[2880, 100]] },
+  ]);
+});
 
 test("operation planning offers zero through eight atomic edits", () => {
   assert.deepEqual(Object.keys(PLANNING_QUESTIONS.operation_count.criteria), Array.from({ length: 9 }, (_, count) => `operations_${count}`));
@@ -12,9 +23,15 @@ test("operation planning offers zero through eight atomic edits", () => {
 });
 
 test("planning chooses phrase length and independently detects involved instruments", () => {
-  assert.deepEqual(Object.keys(PLANNING_QUESTIONS), ["operation_count", "phrase_length", "involves_kick", "involves_snare", "involves_closed_hat", "involves_open_hat", "involves_crash", "involves_high_tom", "involves_mid_tom", "involves_floor_tom"]);
-  assert.deepEqual(Object.keys(PLANNING_QUESTIONS.phrase_length.criteria), ["keep_current", "bars_1", "bars_2", "bars_3", "bars_4"]);
-  for (const instrument of ["kick", "snare", "closed_hat", "open_hat", "crash", "high_tom", "mid_tom", "floor_tom"]) assert.equal(PLANNING_QUESTIONS[`involves_${instrument}`].type, "noul");
+  assert.deepEqual(Object.keys(PLANNING_QUESTIONS), ["operation_count", "phrase_length", "involves_kick", "involves_snare", "involves_closed_hat", "involves_open_hat", "involves_ride", "involves_crash", "involves_high_tom", "involves_mid_tom", "involves_floor_tom"]);
+  assert.deepEqual(Object.keys(PLANNING_QUESTIONS.phrase_length.criteria), ["keep_current", "bars_1", "bars_2", "bars_3", "bars_4", "bars_5", "bars_6", "bars_7", "bars_8"]);
+  for (const instrument of ["kick", "snare", "closed_hat", "open_hat", "ride", "crash", "high_tom", "mid_tom", "floor_tom"]) assert.equal(PLANNING_QUESTIONS[`involves_${instrument}`].type, "noul");
+});
+
+test("an eight-bar pattern offers additions in its final bar", () => {
+  const state = stateForJev(createPatternState({ bars: 8 }), "add a crash at the end");
+  const criteria = buildPatternQuestions(state, ["crash"]).addition_crash_action.criteria;
+  assert.ok(criteria.add_crash_in_bar_8_at_beat_4_a);
 });
 
 test("an empty four-bar pattern offers straight and triplet positions for one planned instrument", () => {

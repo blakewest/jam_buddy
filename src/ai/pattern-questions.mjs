@@ -23,6 +23,7 @@ const instrumentCriteria = {
   snare: { sound: "Snare drum", role: "Backbeats, accents, and sharp responses" },
   closed_hat: { sound: "Closed hi-hat", role: "Short subdivision pulse and timekeeping" },
   open_hat: { sound: "Open hi-hat", role: "Longer bright accent or lift" },
+  ride: { sound: "Ride cymbal", role: "Sustained cymbal pulse and timekeeping" },
   crash: { sound: "Crash cymbal", role: "Strong phrase-opening accent" },
   high_tom: { sound: "High tom", role: "High-pitched fill and melodic movement" },
   mid_tom: { sound: "Mid tom", role: "Mid-range fill and melodic movement" },
@@ -40,10 +41,7 @@ export const PLANNING_QUESTIONS = {
     },
     criteria: {
       keep_current: { meaning: "Keep the current number of bars" },
-      bars_1: { meaning: "Resize the phrase to exactly one bar" },
-      bars_2: { meaning: "Resize the phrase to exactly two bars" },
-      bars_3: { meaning: "Resize the phrase to exactly three bars" },
-      bars_4: { meaning: "Resize the phrase to exactly four bars" },
+      ...Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`bars_${index + 1}`, { meaning: `Resize the phrase to exactly ${index + 1} ${index ? "bars" : "bar"}` }])),
     },
   },
   ...Object.fromEntries(INSTRUMENTS.map(instrument => [`involves_${instrument}`, {
@@ -89,10 +87,11 @@ function notesFromParts(state) {
   return INSTRUMENTS.flatMap(instrument => state.pattern.parts[instrument].map(note => ({ ...note, instrument })));
 }
 
-function additionCriteria(state, instrument) {
+function additionCriteria(state, instrument, selectedBar = null) {
   const occupied = new Set(notesFromParts(state).map(note => `${note.instrument}:${note.bar}:${note.tick}`));
   const criteria = { no_addition: { meaning: "The current pattern already satisfies the request, or the next edit should remove or modify an existing note." } };
   for (let bar = 1; bar <= state.pattern.bars; bar++) {
+    if (selectedBar !== null && bar !== selectedBar) continue;
     for (const position of editPositions(state.pattern.meter)) {
       if (occupied.has(`${instrument}:${bar}:${position.tick}`)) continue;
       criteria[`add_${instrument}_in_bar_${bar}_at_${position.id}`] = {
@@ -106,7 +105,7 @@ function additionCriteria(state, instrument) {
   return criteria;
 }
 
-function additionQuestions(state, instrument) {
+function additionQuestions(state, instrument, bar = null) {
   return {
     [`addition_${instrument}_action`]: {
       type: "choice",
@@ -116,7 +115,7 @@ function additionQuestions(state, instrument) {
         context,
         focus: `Choose the most important missing ${instrumentCriteria[instrument].sound} position. Occupied positions are deliberately absent from the choices.`,
       },
-      criteria: additionCriteria(state, instrument),
+      criteria: additionCriteria(state, instrument, bar),
     },
     [`addition_${instrument}_velocity`]: {
       type: "choice",
@@ -157,6 +156,7 @@ function noteQuestions(note) {
         snare: { meaning: "Use a snare" },
         closed_hat: { meaning: "Use a closed hi-hat" },
         open_hat: { meaning: "Use an open hi-hat" },
+        ride: { meaning: "Use a ride cymbal" },
         crash: { meaning: "Use a crash cymbal" },
         high_tom: { meaning: "Use a high tom" },
         mid_tom: { meaning: "Use a mid tom" },
@@ -186,4 +186,34 @@ export function buildPatternQuestions(state, relevantInstruments = INSTRUMENTS) 
   for (const instrument of selected) Object.assign(questions, additionQuestions(state, instrument));
   for (const note of notesFromParts(state).filter(note => selected.includes(note.instrument))) Object.assign(questions, noteQuestions(note));
   return questions;
+}
+
+export function patternSummary(state) {
+  return { ...state, pattern: { ...state.pattern, hit_fields: ["tick", "velocity"], parts: Object.fromEntries(INSTRUMENTS.map(instrument => [instrument,
+    Array.from({ length: state.pattern.bars }, (_, i) => {
+      const notes = state.pattern.parts[instrument].filter(note => note.bar === i + 1);
+      return { bar: i + 1, notes: notes.length, hits: notes.map(note => [note.tick, note.velocity]) };
+    }),
+  ])) } };
+}
+
+export function buildScopeQuestion(state, instruments) {
+  return { edit_scope: { type: "choice", instructions: "Choose the instrument and bar for the next single-note edit requested in `request`. For edits across several bars, choose the next bar that still needs a change. Choose none if already satisfied.", criteria: {
+    none: "No further edit needed",
+    ...Object.fromEntries(instruments.flatMap(instrument => Array.from({ length: state.pattern.bars }, (_, i) => [`${instrument}:${i + 1}`, `Edit ${instrument} in bar ${i + 1}`]))),
+  } } };
+}
+
+export function buildTargetQuestion(state, instrument, bar) {
+  return { edit_target: { type: "choice", instructions: "Choose the one existing note to remove or modify next to fulfill `request`, or add a missing note in the selected instrument and bar. Choose none if this scope already satisfies the request.", criteria: {
+    none: "No further edit needed in this scope", add: `Add a ${instrument} note in bar ${bar}`,
+    ...Object.fromEntries(state.pattern.parts[instrument].filter(note => note.bar === bar).map(note => [note.id, note])),
+  } } };
+}
+
+export function buildTargetDetails(state, instrument, bar, target) {
+  if (target === "add") return additionQuestions(state, instrument, bar);
+  const note = state.pattern.parts[instrument].find(note => note.id === target && note.bar === bar);
+  if (!note) throw new Error("Invalid edit target.");
+  return noteQuestions({ ...note, instrument });
 }

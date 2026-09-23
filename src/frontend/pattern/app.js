@@ -1,12 +1,12 @@
-import { appendHistory, createPatternState, INSTRUMENTS } from "/core/pattern/state.js";
-import { createPatternPlayer } from "/pattern-audio.js";
+import { appendHistory, createPatternState, INSTRUMENTS, stateForJev } from "/core/pattern/state.js";
+import { createPatternPlayer } from "/frontend/pattern/audio.js";
 import { runPatternRequest } from "/core/pattern/runner.js";
 import { runPatternTree } from "/core/pattern/request-runner.js";
 import { ticksPerBar } from "/core/pattern/musical-time.js";
 import { createIdleSubmit } from "/frontend/shared/idle-submit.js";
 
 const $ = id => document.getElementById(id);
-const labels = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
+const labels = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
 let state = createPatternState();
 let tempoBpm = 120;
 let pendingState = null;
@@ -175,12 +175,14 @@ function renderInspector(log) {
 
 function updateControls() {
   const pending = pendingState !== null;
-  $("send").disabled = busy || pending;
-  $("request").disabled = busy || pending;
-  $("clear").disabled = busy || pending || displayedState().pattern.notes.length === 0;
+  $("send").disabled = busy || pending || startingPlayback;
+  $("request").disabled = busy || pending || startingPlayback;
+  $("clear").disabled = busy || pending || startingPlayback || displayedState().pattern.notes.length === 0;
+  $("tempo").disabled = busy || startingPlayback;
+  $("new-session").disabled = busy || startingPlayback;
   $("pending").hidden = !pending;
-  $("play").disabled = player.isPlaying();
-  $("stop").disabled = !player.isPlaying();
+  $("play").disabled = player.isPlaying() || startingPlayback || busy;
+  $("stop").disabled = !player.isPlaying() && !startingPlayback;
 }
 
 function render() {
@@ -196,7 +198,7 @@ async function startPlayback(pattern) {
   updateControls();
   try {
     await player.start(pattern, tempoBpm);
-    $("playback-status").textContent = "Playing";
+    $("playback-status").textContent = player.isPlaying() ? "Playing" : "Stopped";
   } catch (error) {
     $("playback-status").textContent = error.message;
   } finally {
@@ -205,18 +207,25 @@ async function startPlayback(pattern) {
   }
 }
 
-function commitOrStage(nextState) {
-  if (player.isPlaying()) {
-    pendingState = nextState;
-    player.stage(nextState.pattern, tempoBpm);
-    $("request-status").textContent = "Accepted changes are waiting for the next phrase.";
+async function commitOrStage(nextState, nextTempoBpm = tempoBpm) {
+  const wasPlaying = player.isPlaying();
+  if (wasPlaying) {
+    await player.stage(nextState.pattern, nextTempoBpm);
+    if (player.isPlaying()) {
+      pendingState = nextState;
+      $("request-status").textContent = "Accepted changes are waiting for the next phrase.";
+    } else {
+      state = nextState;
+      $("request-status").textContent = "Changes applied.";
+    }
   } else {
     state = nextState;
     $("request-status").textContent = "Changes applied.";
   }
+  tempoBpm = nextTempoBpm;
   render();
   persist();
-  if (!player.isPlaying()) void startPlayback(state.pattern);
+  if (!wasPlaying) void startPlayback(state.pattern);
 }
 
 $("request-form").addEventListener("submit", async event => {
@@ -242,6 +251,7 @@ $("request-form").addEventListener("submit", async event => {
       route: value => post("/api/pattern-route", { request: value }),
       searchPresets: value => post("/api/preset-search", { request: value }),
       selectPreset: (value, candidateIds) => post("/api/preset-select", { request: value, candidate_ids: candidateIds }),
+      interpretEdit: () => post("/api/pattern-edit-intent", { state: stateForJev(state, request) }),
       runEdit: () => runPatternRequest({
         initialState: state, request, maxPasses: 8,
         estimateOperations: async sentState => {
@@ -266,7 +276,13 @@ $("request-form").addEventListener("submit", async event => {
     if (completed.state === state) {
       $("request-status").textContent = completed.result.message;
       renderInspector(log); renderHistory();
-    } else commitOrStage(completed.state);
+    } else {
+      if (completed.route.category === "clear_pattern") {
+        player.stop();
+        $("playback-status").textContent = "Stopped";
+      }
+      await commitOrStage(completed.state, completed.result.tempo_bpm ?? tempoBpm);
+    }
   } catch (error) {
     $("request-status").textContent = error.message;
   } finally {
@@ -325,7 +341,7 @@ $("clear").addEventListener("click", () => {
   const log = { request: entry.request, result, local: true };
   logs.push(log);
   renderInspector(log);
-  commitOrStage(next);
+  void commitOrStage(next).catch(error => { $("request-status").textContent = error.message; });
 });
 
 $("new-session").addEventListener("click", () => {

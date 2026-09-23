@@ -4,7 +4,9 @@ import { REQUEST_CATEGORIES, resolveRoot, unsupportedMessage } from "../src/core
 import { ROOT_QUESTIONS } from "../src/ai/request-tree-questions.mjs";
 
 test("root categories have stable IDs and explicit next nodes", () => {
-  assert.deepEqual(Object.keys(REQUEST_CATEGORIES), ["edit_pattern", "load_preset", "unsupported"]);
+  assert.deepEqual(Object.keys(REQUEST_CATEGORIES), ["edit_pattern", "load_preset", "clear_pattern", "shuffle_preset", "unsupported"]);
+  assert.equal(resolveRoot("clear_pattern").next_node, "pattern_clear");
+  assert.equal(resolveRoot("shuffle_preset").next_node, "preset_shuffle");
   assert.equal(resolveRoot("edit_pattern").next_node, "edit_plan");
   assert.equal(resolveRoot("load_preset").next_node, "preset_search");
   assert.equal(resolveRoot("unsupported").next_node, null);
@@ -12,12 +14,12 @@ test("root categories have stable IDs and explicit next nodes", () => {
 });
 
 test("unsupported guidance is generated from actionable categories", () => {
-  assert.equal(unsupportedMessage(), "I didn't get that. I can edit the current beat or pick a beat preset.");
+  assert.equal(unsupportedMessage(), "I didn't get that. I can edit the current beat or pick a beat preset or clear the whole beat or shuffle to another beat.");
 });
 
 test("the root sends one bounded choice without pattern state", () => {
   assert.deepEqual(Object.keys(ROOT_QUESTIONS), ["request_category"]);
   assert.equal(ROOT_QUESTIONS.request_category.type, "choice");
-  assert.deepEqual(Object.keys(ROOT_QUESTIONS.request_category.criteria), ["edit_pattern", "load_preset", "unsupported"]);
+  assert.deepEqual(Object.keys(ROOT_QUESTIONS.request_category.criteria), ["edit_pattern", "load_preset", "clear_pattern", "shuffle_preset", "unsupported"]);
   assert.deepEqual(ROOT_QUESTIONS.request_category.instructions.inspect, ["request"]);
 });

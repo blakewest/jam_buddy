@@ -1,6 +1,8 @@
-import { loadPreset, presetById } from "./presets.js";
+import { filterPresets, loadPreset, presetById, PRESETS } from "./presets.js";
+import { appendHistory, createPatternState } from "./state.js";
+import { applyVelocityEdit } from "./velocity-edit.js";
 
-export async function runPatternTree({ state, request, route, searchPresets, selectPreset, runEdit }) {
+export async function runPatternTree({ state, request, route, searchPresets, selectPreset, runEdit, interpretEdit, random = Math.random }) {
   const visits = [];
   const usage = {};
   let latencyMs = 0;
@@ -18,22 +20,52 @@ export async function runPatternTree({ state, request, route, searchPresets, sel
   record("root", routed);
   if (routed.route.category === "unsupported") return { state, route: routed.route, visits, result: { message: routed.route.message, applied_changes: [] }, model, usage, question_count: questionCount, latency_ms: latencyMs };
 
+  if (routed.route.category === "clear_pattern") {
+    const clean = createPatternState(state);
+    const nextState = appendHistory({ ...clean, pattern: { ...clean.pattern, notes: [] } }, { request, applied_changes: ["Cleared the whole pattern"], rejected_changes: [] });
+    const result = { message: "Cleared the whole pattern.", applied_changes: [{ kind: "reset" }] };
+    record("pattern_clear", result);
+    return { state: nextState, route: routed.route, visits, result, model, usage, question_count: questionCount, latency_ms: latencyMs };
+  }
+
   if (routed.route.category === "edit_pattern") {
+    if (interpretEdit) {
+      const interpreted = await interpretEdit();
+      record("edit_interpret", interpreted);
+      if (interpreted.intent) {
+        const applied = applyVelocityEdit(state, interpreted.intent, request);
+        record("velocity_apply", applied.result);
+        return { ...applied, route: routed.route, visits, model, usage, question_count: questionCount, latency_ms: latencyMs };
+      }
+    }
     const edited = await runEdit();
     record("edit_plan", edited);
     return { ...edited, route: routed.route, visits, model: edited.model ?? model, usage, question_count: questionCount, latency_ms: latencyMs };
   }
 
-  if (routed.route.category !== "load_preset") throw new Error("Invalid request route.");
+  const shuffle = routed.route.category === "shuffle_preset";
+  if (!shuffle && routed.route.category !== "load_preset") throw new Error("Invalid request route.");
   const search = await searchPresets(request);
   record("preset_search", search);
+  let attributes = search.attributes;
+  if (shuffle) {
+    // Older browser sessions predate preset_context. Recover their last load.
+    const lastLoad = [...state.recent_history].reverse().flatMap(entry => entry.applied_changes).find(change => /^Loaded .* preset$/.test(change));
+    const previous = PRESETS.find(item => lastLoad === `Loaded ${item.name} preset`);
+    const previousContext = state.preset_context ?? (previous ? { preset_id: previous.id, attributes: { genres: previous.genres, meter: `${previous.meter.numerator}/${previous.meter.denominator}`, feels: [] } } : null);
+    const explicit = search.has_explicit_filters ?? (attributes?.genres?.length || attributes?.feels?.length || (attributes?.meter && attributes.meter !== "unspecified"));
+    if (!explicit) attributes = previousContext?.attributes ?? {};
+    search.candidate_ids = filterPresets(attributes ?? {}).map(item => item.id).filter(id => id !== previousContext?.preset_id);
+    if (!search.candidate_ids.length) return { state, route: routed.route, visits, result: { message: "There isn't another matching beat. Try a different genre or time signature.", applied_changes: [] }, model, usage, question_count: questionCount, latency_ms: latencyMs };
+  }
   if (!search.candidate_ids?.length) return { state, route: routed.route, visits, result: { message: "No matching preset is available. Try one of the suggested genres or meters.", alternatives: search.alternatives, applied_changes: [] }, model, usage, question_count: questionCount, latency_ms: latencyMs };
-  const selection = await selectPreset(request, search.candidate_ids);
-  record("preset_select", selection);
+  const selection = shuffle ? { preset_id: search.candidate_ids[Math.floor(random() * search.candidate_ids.length)] } : await selectPreset(request, search.candidate_ids);
+  record(shuffle ? "preset_shuffle" : "preset_select", selection);
   const selected = presetById(selection.preset_id);
   if (!selected || !search.candidate_ids.includes(selected.id)) throw new Error("Invalid preset selection.");
   const nextState = loadPreset(state, selected, request);
-  const result = { preset_id: selected.id, preset_name: selected.name, message: `Loaded ${selected.name}.`, applied_changes: [{ kind: "load_preset", preset_id: selected.id, preset_name: selected.name }] };
+  nextState.preset_context = { preset_id: selected.id, attributes: attributes ?? { genres: selected.genres, meter: `${selected.meter.numerator}/${selected.meter.denominator}`, feels: [] } };
+  const result = { preset_id: selected.id, preset_name: selected.name, tempo_bpm: selected.tempo_bpm, message: `Loaded ${selected.name}.`, applied_changes: [{ kind: "load_preset", preset_id: selected.id, preset_name: selected.name }] };
   record("preset_load", result);
   return { state: nextState, route: routed.route, visits, result, model, usage, question_count: questionCount, latency_ms: latencyMs };
 }

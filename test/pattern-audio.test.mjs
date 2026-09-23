@@ -5,6 +5,22 @@ import { eventsForWindow, patternDurationSeconds, splitPatternWindow } from "../
 const pattern = (bars, meter, notes) => ({ bars, meter, ticks_per_quarter: 960, notes });
 const note = (id, instrument, bar, tick, velocity = 96) => ({ id, instrument, bar, tick, velocity });
 
+test("soft ghost notes retain their velocity within the selected sample layer", () => {
+  const notes = [note("ghost", "snare", 1, 0, 5), note("soft", "snare", 1, 240, 25), note("medium", "snare", 1, 480, 40), note("loud", "snare", 1, 720, 127)];
+  const hits = eventsForWindow(pattern(1, { numerator: 4, denominator: 4 }, notes), 120, 0, 0.5);
+  assert.deepEqual(hits.map(hit => [hit.id, hit.layer, hit.gain]), [["ghost", 1, 0.2], ["soft", 1, 1], ["medium", 2, 0.8], ["loud", 5, 1]]);
+});
+
+test("simultaneous MIDI articulations choose distinct sample families", () => {
+  const notes = [
+    { ...note("side", "snare", 1, 0), midi_pitch: 37 },
+    { ...note("center", "snare", 1, 0), midi_pitch: 38 },
+    { ...note("pedal", "closed_hat", 1, 0), midi_pitch: 44 },
+  ];
+  const hits = eventsForWindow(pattern(1, { numerator: 4, denominator: 4 }, notes), 120, 0, 0.1);
+  assert.deepEqual(hits.map(hit => hit.sample_family), ["snare_side", "snare_center", "hat_pedal"]);
+});
+
 test("humanized tick timing repeats at the session tempo", () => {
   const hits = eventsForWindow(pattern(1, { numerator: 4, denominator: 4 }, [note("note_1", "kick", 1, 487)]), 120, 0, 4.1, 0);
   assert.deepEqual(hits.map(hit => [hit.id, Number(hit.time.toFixed(6))]), [["note_1", 0.253646], ["note_1", 2.253646]]);

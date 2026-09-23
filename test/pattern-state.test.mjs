@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, resizePattern, stateForJev } from "../src/core/pattern/state.js";
+import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, MAX_BARS, resizePattern, stateForJev } from "../src/core/pattern/state.js";
 
 const choice = (value, probabilities = { no_op: 0 }) => ({ type: "choice", choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
 const noul = value => ({ type: "noul", noul: value });
@@ -39,15 +39,46 @@ function addition(_lane, confidence, instrument, slot, velocity, bar = 1) {
 }
 
 test("the pattern supports cymbal and tom voices", () => {
-  assert.deepEqual(INSTRUMENTS, ["kick", "snare", "closed_hat", "open_hat", "crash", "high_tom", "mid_tom", "floor_tom"]);
-  const notes = ["crash", "high_tom", "mid_tom", "floor_tom"].map((instrument, index) => ({ id: `note_${index + 1}`, instrument, bar: 1, tick: index * 240, velocity: 96 }));
-  assert.equal(createPatternState({ notes }).pattern.notes.length, 4);
+  assert.deepEqual(INSTRUMENTS, ["kick", "snare", "closed_hat", "open_hat", "ride", "crash", "high_tom", "mid_tom", "floor_tom"]);
+  const notes = ["ride", "crash", "high_tom", "mid_tom", "floor_tom"].map((instrument, index) => ({ id: `note_${index + 1}`, instrument, bar: 1, tick: index * 240, velocity: 96 }));
+  assert.equal(createPatternState({ notes }).pattern.notes.length, 5);
 });
 
 test("a new pattern is an empty one-bar phrase", () => {
   const state = createPatternState();
   assert.deepEqual(state.pattern, { bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [] });
   assert.deepEqual(state.recent_history, []);
+});
+
+test("patterns retain notes through an eight-bar phrase", () => {
+  const state = createPatternState({ bars: 8, notes: [{ id: "note_1", instrument: "crash", bar: 8, tick: 0, velocity: 100 }] });
+  assert.equal(MAX_BARS, 8);
+  assert.equal(state.pattern.bars, 8);
+  assert.equal(state.pattern.notes[0].bar, 8);
+});
+
+test("source articulations survive storage and same-lane edits", () => {
+  const source = { id: "note_1", instrument: "snare", bar: 1, tick: 960, velocity: 80, midi_pitch: 37 };
+  const state = createPatternState({ notes: [source] });
+  assert.deepEqual(state.pattern.notes[0], source);
+  const edited = applyPatternAnswers(state, noReset(modify("note_1", 0.9, "later_sixteenth")), "move rim hit");
+  assert.equal(edited.state.pattern.notes[0].midi_pitch, 37);
+  assert.equal(edited.state.pattern.notes[0].tick, 1200);
+  assert.deepEqual(Object.keys(stateForJev(state, "edit").pattern.parts.snare[0]), ["id", "bar", "tick", "position", "velocity"]);
+});
+
+test("changing lanes resets a source articulation to the new lane's default", () => {
+  const state = createPatternState({ notes: [{ id: "note_1", instrument: "snare", bar: 1, tick: 960, velocity: 80, midi_pitch: 37 }] });
+  const edited = applyPatternAnswers(state, noReset(modify("note_1", 0.9, "no_change", "no_change", "kick")), "make it a kick");
+  assert.equal(edited.state.pattern.notes[0].instrument, "kick");
+  assert.equal(edited.state.pattern.notes[0].midi_pitch, 36);
+});
+
+test("different snare articulations can share a tick", () => {
+  const notes = [37, 38].map((midi_pitch, index) => ({ id: `note_${index + 1}`, instrument: "snare", bar: 1, tick: 960, velocity: 80, midi_pitch }));
+  const state = createPatternState({ notes });
+  assert.equal(state.pattern.notes.length, 2);
+  assert.equal(stateForJev(state, "edit").pattern.parts.snare.length, 2);
 });
 
 test("resizing preserves notes when expanding and removes truncated bars when shrinking", () => {

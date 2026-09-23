@@ -26,6 +26,34 @@ test("proxy sends only minimal state and fixed question; returns structured answ
   } });
 });
 
+test("preset audition page and source clips are served", async () => {
+  await withServer(async url => {
+    for (const path of ["/presets.html", "/presets.css", "/presets-app.js", "/core/pattern/audition-grooves.js", "/assets/gmd/funk_pocket.wav", "/assets/gmd/gmd_drummer5_session1_17.wav"]) {
+      const response = await fetch(`${url}${path}`);
+      assert.equal(response.status, 200, path);
+    }
+  });
+});
+
+test("groove audio supports byte ranges for browser playback", async () => {
+  await withServer(async url => {
+    const path = `${url}/assets/gmd/funk_pocket.wav`;
+    const first = await fetch(path, { headers: { Range: "bytes=0-1023" } });
+    assert.equal(first.status, 206);
+    assert.equal(first.headers.get("Accept-Ranges"), "bytes");
+    assert.match(first.headers.get("Content-Range"), /^bytes 0-1023\/\d+$/);
+    assert.equal((await first.arrayBuffer()).byteLength, 1024);
+
+    const suffix = await fetch(path, { headers: { Range: "bytes=-128" } });
+    assert.equal(suffix.status, 206);
+    assert.equal((await suffix.arrayBuffer()).byteLength, 128);
+
+    const invalid = await fetch(path, { headers: { Range: "bytes=999999999-" } });
+    assert.equal(invalid.status, 416);
+    assert.match(invalid.headers.get("Content-Range"), /^bytes \*\/\d+$/);
+  });
+});
+
 test("dotfiles, foreign origins, invalid state and large bodies never call upstream", async () => {
   await withServer(async url => {
     assert.equal((await fetch(`${url}/.env`)).status, 404);

@@ -1,0 +1,191 @@
+{
+  "name": "Virtuosity Drums subset",
+  "license": "CC0-1.0",
+  "source_revision": "9f04cf9a734527edfbb0a4eee1f674e45bbf71bc",
+  "families": {
+    "kick": [
+      "kick-layer-1.wav",
+      "kick-layer-2.wav",
+      "kick-layer-3.wav",
+      "kick-layer-4.wav"
+    ],
+    "snare_center": [
+      "snare_center-layer-1.wav",
+      "snare_center-layer-2.wav",
+      "snare_center-layer-3.wav",
+      "snare_center-layer-4.wav",
+      "snare_center-layer-5.wav",
+      "snare_center-layer-6.wav"
+    ],
+    "snare_rim": [
+      "snare_rim-layer-1.wav",
+      "snare_rim-layer-2.wav",
+      "snare_rim-layer-3.wav",
+      "snare_rim-layer-4.wav"
+    ],
+    "snare_side": [
+      "snare_side-layer-1.wav",
+      "snare_side-layer-2.wav",
+      "snare_side-layer-3.wav",
+      "snare_side-layer-4.wav"
+    ],
+    "hat_closed": [
+      "hat_closed-layer-1.wav",
+      "hat_closed-layer-2.wav",
+      "hat_closed-layer-3.wav",
+      "hat_closed-layer-4.wav"
+    ],
+    "hat_half": [
+      "hat_half-layer-1.wav",
+      "hat_half-layer-2.wav",
+      "hat_half-layer-3.wav",
+      "hat_half-layer-4.wav"
+    ],
+    "hat_pedal": [
+      "hat_pedal-layer-1.wav",
+      "hat_pedal-layer-2.wav",
+      "hat_pedal-layer-3.wav"
+    ],
+    "hat_open": [
+      "hat_open-layer-1.wav",
+      "hat_open-layer-2.wav",
+      "hat_open-layer-3.wav",
+      "hat_open-layer-4.wav"
+    ],
+    "hat_three_quarter": [
+      "hat_three_quarter-layer-1.wav",
+      "hat_three_quarter-layer-2.wav",
+      "hat_three_quarter-layer-3.wav",
+      "hat_three_quarter-layer-4.wav"
+    ],
+    "ride_bow": [
+      "ride_bow-layer-1.wav",
+      "ride_bow-layer-2.wav",
+      "ride_bow-layer-3.wav"
+    ],
+    "ride_bell": [
+      "ride_bell-layer-1.wav",
+      "ride_bell-layer-2.wav",
+      "ride_bell-layer-3.wav"
+    ],
+    "crash": [
+      "crash-layer-1.wav",
+      "crash-layer-2.wav",
+      "crash-layer-3.wav"
+    ],
+    "tom_high": [
+      "tom_high-layer-1.wav",
+      "tom_high-layer-2.wav",
+      "tom_high-layer-3.wav",
+      "tom_high-layer-4.wav"
+    ],
+    "tom_mid": [
+      "tom_mid-layer-1.wav",
+      "tom_mid-layer-2.wav",
+      "tom_mid-layer-3.wav",
+      "tom_mid-layer-4.wav"
+    ],
+    "tom_low": [
+      "tom_low-layer-1.wav",
+      "tom_low-layer-2.wav",
+      "tom_low-layer-3.wav",
+      "tom_low-layer-4.wav"
+    ]
+  },
+  "source_files": {
+    "kick": [
+      "Samples/kickmic/kick/kickmic_kick_snon_vl1_rr1.flac",
+      "Samples/kickmic/kick/kickmic_kick_snon_vl2_rr1.flac",
+      "Samples/kickmic/kick/kickmic_kick_snon_vl3_rr1.flac",
+      "Samples/kickmic/kick/kickmic_kick_snon_vl4_rr1.flac"
+    ],
+    "snare_center": [
+      "Samples/mid/snare/mid_snare_center_vl6.flac",
+      "Samples/mid/snare/mid_snare_center_vl12.flac",
+      "Samples/mid/snare/mid_snare_center_vl18.flac",
+      "Samples/mid/snare/mid_snare_center_vl24.flac",
+      "Samples/mid/snare/mid_snare_center_vl30.flac",
+      "Samples/mid/snare/mid_snare_center_vl36.flac"
+    ],
+    "snare_rim": [
+      "Samples/mid/snare/mid_snare_rimshot_vl3.flac",
+      "Samples/mid/snare/mid_snare_rimshot_vl6.flac",
+      "Samples/mid/snare/mid_snare_rimshot_vl9.flac",
+      "Samples/mid/snare/mid_snare_rimshot_vl12.flac"
+    ],
+    "snare_side": [
+      "Samples/mid/snare/mid_snare_crossstick_vl4.flac",
+      "Samples/mid/snare/mid_snare_crossstick_vl8.flac",
+      "Samples/mid/snare/mid_snare_crossstick_vl12.flac",
+      "Samples/mid/snare/mid_snare_crossstick_vl16.flac"
+    ],
+    "hat_closed": [
+      "Samples/mid/hh/mid_hh_closed_vl1_rr1.flac",
+      "Samples/mid/hh/mid_hh_closed_vl2_rr1.flac",
+      "Samples/mid/hh/mid_hh_closed_vl3_rr1.flac",
+      "Samples/mid/hh/mid_hh_closed_vl4_rr1.flac"
+    ],
+    "hat_half": [
+      "Samples/mid/hh/mid_hh_half_vl1_rr1.flac",
+      "Samples/mid/hh/mid_hh_half_vl2_rr1.flac",
+      "Samples/mid/hh/mid_hh_half_vl3_rr1.flac",
+      "Samples/mid/hh/mid_hh_half_vl4_rr1.flac"
+    ],
+    "hat_pedal": [
+      "Samples/mid/hh/mid_hh_pedal_vl1_rr1.flac",
+      "Samples/mid/hh/mid_hh_pedal_vl2_rr1.flac",
+      "Samples/mid/hh/mid_hh_pedal_vl3_rr1.flac"
+    ],
+    "hat_open": [
+      "Samples/mid/hh/mid_hh_open_vl1_rr1.flac",
+      "Samples/mid/hh/mid_hh_open_vl2_rr1.flac",
+      "Samples/mid/hh/mid_hh_open_vl3_rr1.flac",
+      "Samples/mid/hh/mid_hh_open_vl4_rr1.flac"
+    ],
+    "hat_three_quarter": [
+      "Samples/mid/hh/mid_hh_34_vl1_rr1.flac",
+      "Samples/mid/hh/mid_hh_34_vl2_rr1.flac",
+      "Samples/mid/hh/mid_hh_34_vl3_rr1.flac",
+      "Samples/mid/hh/mid_hh_34_vl4_rr1.flac"
+    ],
+    "ride_bow": [
+      "Samples/mid/ride/mid_ride_ride_vl1_rr1.flac",
+      "Samples/mid/ride/mid_ride_ride_vl2_rr1.flac",
+      "Samples/mid/ride/mid_ride_ride_vl3_rr1.flac"
+    ],
+    "ride_bell": [
+      "Samples/mid/ride/mid_ride_bell_vl1_rr1.flac",
+      "Samples/mid/ride/mid_ride_bell_vl2_rr1.flac",
+      "Samples/mid/ride/mid_ride_bell_vl3_rr1.flac"
+    ],
+    "crash": [
+      "Samples/mid/crash/mid_crash_crash_vl1_rr1.flac",
+      "Samples/mid/crash/mid_crash_crash_vl2_rr1.flac",
+      "Samples/mid/crash/mid_crash_crash_vl3_rr1.flac"
+    ],
+    "tom_high": [
+      "Samples/mid/htom/mid_htom_center_vl4.flac",
+      "Samples/mid/htom/mid_htom_center_vl8.flac",
+      "Samples/mid/htom/mid_htom_center_vl12.flac",
+      "Samples/mid/htom/mid_htom_center_vl16.flac"
+    ],
+    "tom_mid": [
+      "Samples/mid/ltom/mid_ltom_offcenter_vl3.flac",
+      "Samples/mid/ltom/mid_ltom_offcenter_vl6.flac",
+      "Samples/mid/ltom/mid_ltom_offcenter_vl9.flac",
+      "Samples/mid/ltom/mid_ltom_offcenter_vl12.flac"
+    ],
+    "tom_low": [
+      "Samples/mid/ltom/mid_ltom_center_vl4.flac",
+      "Samples/mid/ltom/mid_ltom_center_vl8.flac",
+      "Samples/mid/ltom/mid_ltom_center_vl12.flac",
+      "Samples/mid/ltom/mid_ltom_center_vl16.flac"
+    ]
+  },
+  "approximations": {
+    "22": "hat_half (source pitch: closed edge)",
+    "26": "hat_three_quarter (source pitch: open edge)",
+    "45": "tom_mid (off-center low tom)",
+    "47": "tom_mid (off-center low tom)"
+  }
+}
