@@ -1,4 +1,5 @@
 import { splitPatternWindow } from "/core/pattern/audio-schedule.js";
+import { getKit, sampleForHit } from "/core/pattern/kits.js";
 
 const BAR_SECONDS = 2;
 const LOOKAHEAD_SECONDS = 0.1;
@@ -11,7 +12,8 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
   let context;
   let output;
   let timer;
-  let loaded = false;
+  let generation = 0;
+  const kitLoads = new Map();
   let playing = false;
   let activePattern = { bars: 1, slots_per_bar: 16, notes: [] };
   let pendingPattern = null;
@@ -31,25 +33,29 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
     output.connect(context.destination);
   }
 
-  async function load() {
-    if (loaded) return;
+  async function load(kitId = "acoustic") {
+    getKit(kitId);
     ensureContext();
-    try {
-      await Promise.all(instruments.flatMap(instrument => Array.from({ length: 5 }, async (_, index) => {
-        const key = `${instrument}:${index + 1}`;
-        const response = await fetch(`/assets/osdk/${instrument}/layer-${index + 1}.wav`);
-        if (!response.ok) throw new Error(`Could not load ${instrument} layer ${index + 1}.`);
-        buffers.set(key, await context.decodeAudioData(await response.arrayBuffer()));
-      })));
-      loaded = true;
-    } catch (error) {
-      onError(error.message);
-      throw error;
+    if (!kitLoads.has(kitId)) {
+      const urls = [...new Set(instruments.flatMap(instrument => Array.from({ length: 5 }, (_, index) => sampleForHit(kitId, instrument, index + 1).url)))];
+      const loading = Promise.all(urls.map(async url => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Could not load ${getKit(kitId).name} samples.`);
+        return [url, await context.decodeAudioData(await response.arrayBuffer())];
+      })).then(entries => {
+        for (const [url, buffer] of entries) buffers.set(url, buffer);
+      }).catch(error => {
+        kitLoads.delete(kitId);
+        throw error;
+      });
+      kitLoads.set(kitId, loading);
     }
+    return kitLoads.get(kitId);
   }
 
   function scheduleHit(hit) {
-    const buffer = buffers.get(`${hit.instrument}:${hit.velocity_layer}`);
+    const sample = sampleForHit(hit.kit_id ?? "acoustic", hit.instrument, hit.velocity_layer);
+    const buffer = buffers.get(sample.url);
     if (!buffer) {
       onError(`Missing sample for ${hit.instrument}, layer ${hit.velocity_layer}.`);
       return;
@@ -62,12 +68,17 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
     }
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.connect(output);
+    const gain = context.createGain();
+    gain.gain.value = sample.gain;
+    source.connect(gain);
+    gain.connect(output);
     sources.add(source);
     if (hit.instrument === "open_hat") openHatSources.add(source);
     source.onended = () => {
       sources.delete(source);
       openHatSources.delete(source);
+      source.disconnect?.();
+      gain.disconnect();
     };
     source.start(Math.max(context.currentTime, hit.time));
   }
@@ -90,9 +101,12 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
   }
 
   async function start(pattern) {
-    await load();
-    await context.resume();
     stop();
+    const startedGeneration = generation;
+    await load(pattern.kit_id ?? "acoustic");
+    if (startedGeneration !== generation) return false;
+    await context.resume();
+    if (startedGeneration !== generation) return false;
     activePattern = clone(pattern);
     pendingPattern = null;
     playing = true;
@@ -100,6 +114,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
     scheduledThrough = originTime;
     tick();
     timer = window.setInterval(tick, POLL_MS);
+    return true;
   }
 
   async function unlock() {
@@ -108,6 +123,8 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} } = 
   }
 
   function stop() {
+    generation++;
+    pendingPattern = null;
     playing = false;
     if (timer) window.clearInterval(timer);
     timer = null;

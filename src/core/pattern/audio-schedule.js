@@ -11,7 +11,7 @@ export function eventsForWindow(pattern, fromTime, toTime, originTime = 0) {
     const phraseTime = originTime + phrase * phraseSeconds;
     for (const note of pattern.notes) {
       const time = phraseTime + (note.bar - 1) * BAR_SECONDS + (note.slot - 1) * SLOT_SECONDS;
-      if (time >= fromTime && time < toTime) events.push({ ...note, time });
+      if (time >= fromTime && time < toTime) events.push({ ...note, time, kit_id: pattern.kit_id ?? "acoustic" });
     }
   }
   return events.sort((left, right) => left.time - right.time || left.bar - right.bar || left.slot - right.slot);

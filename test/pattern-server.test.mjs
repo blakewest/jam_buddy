@@ -124,3 +124,31 @@ test("pattern proxy sanitizes upstream failures and preserves retry timing", asy
     assert.ok(!(await response.text()).includes("pattern-test-secret"));
   }, { fetchImpl: async () => new Response("pattern-test-secret", { status: 429, headers: { "Retry-After": "4" } }) });
 });
+
+test("request tree proxy validates nodes and small state, and serves registered kit assets", async () => {
+  await withServer(async url => {
+    const treePost = payload => fetch(`${url}/api/request-decision`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const state = { request: "use 808", kit_id: "acoustic", recent_history: [] };
+    assert.equal((await treePost({ node_id: "root", state })).status, 200);
+    assert.equal((await treePost({ node_id: "__proto__", state })).status, 400);
+    assert.equal((await treePost({ node_id: "change_kit", state: { ...state, kit_id: "linn" } })).status, 400);
+    assert.equal((await treePost({ node_id: "root", state: { ...state, recent_history: Array(9).fill({}) } })).status, 400);
+    for (const kit of ["tr_808", "tr_505"]) {
+      const response = await fetch(`${url}/assets/${kit}/kick.wav`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Content-Type"), "audio/wav");
+    }
+    assert.equal((await fetch(`${url}/assets/linn/kick.wav`)).status, 404);
+  }, { fetchImpl: async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.state.pattern, undefined);
+    return Response.json({ model: "test", answers: answerQuestions(payload.questions) });
+  } });
+});
+
+test("request tree rejects invalid upstream choices", async () => {
+  await withServer(async url => {
+    const response = await fetch(`${url}/api/request-decision`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ node_id: "change_kit", state: { request: "808", kit_id: "acoustic", recent_history: [] } }) });
+    assert.equal(response.status, 502);
+  }, { fetchImpl: async () => Response.json({ model: "test", answers: { selection: { type: "choice", choice: "invalid", probabilities: { invalid: 1 } } } }) });
+});

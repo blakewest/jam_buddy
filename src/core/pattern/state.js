@@ -1,7 +1,10 @@
+import { KITS } from "./kits.js";
+
 export const INSTRUMENTS = Object.freeze(["kick", "snare", "closed_hat", "open_hat"]);
 export const SLOTS_PER_BAR = 16;
 export const MAX_BARS = 4;
 export const MAX_HISTORY = 8;
+export const MAX_UNDO_HISTORY = 20;
 export const MAX_OPERATIONS = 4;
 export const POSITIONS = Object.freeze([
   "beat_1", "beat_1_e", "beat_1_and", "beat_1_a",
@@ -36,8 +39,12 @@ export function createPatternState(saved = {}) {
     .map(note => ({ ...note, bar: Number.isInteger(note.bar) ? note.bar : 1 }))
     .filter(note => note.bar >= 1 && note.bar <= bars) : [];
   return {
-    pattern: { bars, slots_per_bar: SLOTS_PER_BAR, notes },
+    pattern: { bars, slots_per_bar: SLOTS_PER_BAR, notes, kit_id: KITS.some(kit => kit.id === pattern.kit_id) ? pattern.kit_id : "acoustic" },
     recent_history: Array.isArray(saved.recent_history) ? clone(saved.recent_history).slice(-MAX_HISTORY) : [],
+    undo_history: Array.isArray(saved.undo_history) ? saved.undo_history.slice(-MAX_UNDO_HISTORY)
+      .filter(unit => unit && typeof unit.request === "string" && unit.pattern && Array.isArray(unit.pattern.notes)
+        && unit.pattern.notes.every(note => note && typeof note.id === "string"))
+      .map(unit => ({ request: unit.request.slice(0, 500), pattern: createPatternState({ pattern: unit.pattern }).pattern })) : [],
     next_note_id: Math.max(Number(saved.next_note_id) || 1, nextIdFor(notes)),
   };
 }

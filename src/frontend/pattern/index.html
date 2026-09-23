@@ -10,12 +10,14 @@
 <body>
   <main>
     <header>
-      <div><div class="eyebrow">JAM PARTNER / EXPERIMENT 02</div><h1>Build a beat with Jev.</h1><p>Describe the next change. Jev estimates how many note edits it needs, then applies them one at a time.</p></div>
+      <div><div class="eyebrow">JAM PARTNER / EXPERIMENT 02</div><h1>Build a beat with Jev.</h1><p>Shape the groove or swap the kit. Describe what you want to hear next.</p></div>
       <div class="header-links"><span class="local"><i></i> Local session</span><a href="/">Timing lab →</a></div>
     </header>
     <section class="transport panel" aria-label="Pattern playback">
       <div class="transport-buttons"><button id="play" class="primary">▶ Play loop</button><button id="stop" disabled>■ Stop</button></div>
       <div class="transport-meta"><strong>120 BPM</strong><span>4/4</span><span id="phrase-bars">1 bar</span><span id="phrase-steps">16 steps</span></div>
+      <label class="kit-select">Kit <select id="kit" aria-label="Drum kit"></select></label>
+      <span id="kit-status" class="status" role="status">Acoustic</span>
       <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8"></label>
       <span id="playback-status" class="status" role="status">Stopped</span>
     </section>
@@ -31,12 +33,12 @@
         <div class="prompt-row"><textarea id="request" maxlength="500" rows="2" placeholder="Try: Give me a simple backbeat" required></textarea><button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Ask Jev (⌘ Enter)">Ask Jev</button></div>
       </form>
       <label class="auto-submit"><input id="auto-submit" type="checkbox" checked> Auto-submit after 0.3 seconds without new text</label>
-      <div class="examples" aria-label="Example prompts"><button type="button">I want a 4 bar phrase</button><button type="button">Give me a simple backbeat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Make the snare louder</button><button type="button">No, wipe the whole pattern and start over</button></div>
+      <div class="examples" aria-label="Example prompts"><button type="button">Swap the kit for something more modern</button><button type="button">Use the 505</button><button type="button">Back to acoustic</button><button type="button">Give me a simple backbeat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Make the snare louder</button><button type="button">No, wipe the whole pattern and start over</button></div>
       <div class="request-status"><span id="request-status" role="status">Ready for your first request. Press ⌘ Enter to send.</span><span id="request-meta">No API call yet</span></div>
     </section>
     <div class="columns">
       <section class="history panel" aria-labelledby="history-heading">
-        <div class="section-heading"><div><span class="eyebrow">SESSION</span><h2 id="history-heading">Change history</h2></div><div class="small-actions"><button id="clear" type="button">Clear pattern</button><button id="new-session" type="button">New session</button></div></div>
+        <div class="section-heading"><div><span class="eyebrow">SESSION</span><h2 id="history-heading">Change history</h2></div><div class="small-actions"><button id="undo" type="button" disabled>Undo</button><button id="clear" type="button">Clear pattern</button><button id="new-session" type="button">New session</button></div></div>
         <div id="history-list" class="history-list"><p class="empty">Your first change will appear here.</p></div>
       </section>
       <section class="inspector panel" aria-labelledby="inspector-heading">

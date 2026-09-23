@@ -39,13 +39,13 @@ function addition(_lane, confidence, instrument, slot, velocity, bar = 1) {
 
 test("a new pattern is an empty one-bar phrase", () => {
   const state = createPatternState();
-  assert.deepEqual(state.pattern, { bars: 1, slots_per_bar: 16, notes: [] });
+  assert.deepEqual(state.pattern, { bars: 1, slots_per_bar: 16, notes: [], kit_id: "acoustic" });
   assert.deepEqual(state.recent_history, []);
 });
 
 test("resizing preserves notes when expanding and removes truncated bars when shrinking", () => {
   const state = createPatternState({ bars: 2, notes: [note("note_1", "kick", 1), note("note_2", "snare", 5, 4, 2)] });
-  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, slots_per_bar: 16, notes: state.pattern.notes });
+  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, slots_per_bar: 16, notes: state.pattern.notes, kit_id: "acoustic" });
   assert.deepEqual(resizePattern(state, 1).pattern.notes, [note("note_1", "kick", 1)]);
 });
 

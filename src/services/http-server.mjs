@@ -2,6 +2,7 @@ import { createServer as httpServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { TIMING_QUESTION } from "../ai/timing-question.mjs";
 import { buildPatternQuestions, PLANNING_QUESTIONS } from "../ai/pattern-questions.mjs";
+import { REQUEST_NODES, validRequestState, isRequestNode } from "../ai/request-questions.mjs";
 import { ACTIONS } from "../core/timing/session.js";
 import { INSTRUMENTS, MUSIC_REFERENCE, POSITIONS } from "../core/pattern/state.js";
 
@@ -23,6 +24,8 @@ const PUBLIC_FILES = new Map([
   ["/frontend/shared/idle-submit.js", staticFile("../frontend/shared/idle-submit.js", "text/javascript")],
   ["/recorded-run.json", staticFile("../../recordings/live-60s.json", "application/json")],
 ]);
+for (const name of ["kits", "request-tree", "undo"]) PUBLIC_FILES.set(`/core/pattern/${name}.js`, staticFile(`../core/pattern/${name}.js`, "text/javascript"));
+
 const exactKeys = (obj, keys) => obj && typeof obj === "object" && !Array.isArray(obj) && Object.keys(obj).length === keys.length && keys.every(key => Object.hasOwn(obj, key));
 const midiValue = value => Number.isInteger(value) && value >= 0 && value <= 127;
 
@@ -85,7 +88,8 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     const host = req.headers.host;
     if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host ?? "")) return json(res, 403, { error: "Local access only." });
     const path = new URL(req.url, `http://${host}`).pathname;
-    const samplePath = /^\/assets\/osdk\/(kick|snare|closed_hat|open_hat)\/layer-[1-5]\.wav$/.test(path);
+    const electronicSample = /^\/assets\/(tr_808|tr_505)\/(kick|snare|closed_hat|open_hat)\.wav$/.test(path);
+    const samplePath = electronicSample || /^\/assets\/osdk\/(kick|snare|closed_hat|open_hat)\/layer-[1-5]\.wav$/.test(path);
     if (req.method === "GET" && samplePath) {
       try {
         const content = await readFile(new URL(`../frontend${path}`, import.meta.url));
@@ -101,7 +105,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       } catch { json(res, 404, { error: "File not found." }); }
       return;
     }
-    if (!["/api/decision", "/api/pattern-decision", "/api/pattern-plan"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
+    if (!["/api/decision", "/api/pattern-decision", "/api/pattern-plan", "/api/request-decision"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
     if (req.headers.origin && req.headers.origin !== `http://${host}`) return json(res, 403, { error: "Foreign origin rejected." });
     if (req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Cross-site request rejected." });
     if (req.headers["content-type"]?.split(";")[0].trim() !== "application/json") return json(res, 415, { error: "JSON required." });
@@ -119,14 +123,15 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     } catch { return json(res, 400, { error: "Invalid JSON." }); }
     const planRequest = path === "/api/pattern-plan";
     const editRequest = path === "/api/pattern-decision";
+    const treeRequest = path === "/api/request-decision";
     const patternRequest = editRequest || planRequest;
     const validInstruments = editRequest && exactKeys(payload, ["state", "instruments"]) && Array.isArray(payload.instruments) && payload.instruments.length >= 1 && payload.instruments.length <= 4 && new Set(payload.instruments).size === payload.instruments.length && payload.instruments.every(instrument => INSTRUMENTS.includes(instrument));
-    const validPayload = planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : exactKeys(payload, ["state"]);
-    if (!validPayload || !(patternRequest ? validPatternState(payload.state) : validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
+    const validPayload = treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestNode(payload.node_id) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : exactKeys(payload, ["state"]);
+    if (!validPayload || !(treeRequest ? validRequestState(payload.state) : patternRequest ? validPatternState(payload.state) : validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
     if (!apiKey?.trim()) return json(res, 503, { code: "missing_api_key", error: "Set TYPESAFE_API_KEY in the local .env file, then restart the server." });
-    const questions = planRequest ? PLANNING_QUESTIONS : editRequest ? buildPatternQuestions(payload.state, payload.instruments) : { action: TIMING_QUESTION };
+    const questions = treeRequest ? REQUEST_NODES[payload.node_id].buildQuestions(payload.state) : planRequest ? PLANNING_QUESTIONS : editRequest ? buildPatternQuestions(payload.state, payload.instruments) : { action: TIMING_QUESTION };
     const abort = new AbortController();
-    const timeoutMs = patternRequest ? 10000 : 2000;
+    const timeoutMs = (patternRequest || treeRequest) ? 10000 : 2000;
     const timer = setTimeout(() => abort.abort(), timeoutMs);
     const disconnect = () => { if (!res.writableEnded) abort.abort(); };
     res.on("close", disconnect);
@@ -141,6 +146,11 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
         return json(res, upstream.status, { error: `TypeSafe returned HTTP ${upstream.status}.` }, retry ? { "Retry-After": retry } : {});
       }
       const data = await upstream.json();
+      if (treeRequest) {
+        if (!validPatternAnswers(data, questions)) return json(res, 502, { error: "TypeSafe returned invalid request answers." });
+        const outcome = REQUEST_NODES[payload.node_id].validate(data.answers);
+        return json(res, 200, { answers: data.answers, outcome, model: data.model, usage: data.usage, question_count: Object.keys(questions).length });
+      }
       if (patternRequest) {
         if (!validPatternAnswers(data, questions)) return json(res, 502, { error: "TypeSafe returned invalid pattern answers." });
         if (planRequest) {

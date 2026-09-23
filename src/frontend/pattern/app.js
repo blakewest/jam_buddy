@@ -1,6 +1,9 @@
 import { appendHistory, createPatternState, INSTRUMENTS } from "/core/pattern/state.js";
 import { createPatternPlayer } from "/pattern-audio.js";
 import { runPatternRequest } from "/core/pattern/runner.js";
+import { KITS, getKit } from "/core/pattern/kits.js";
+import { recordUndoUnit, undoLastChange } from "/core/pattern/undo.js";
+import { runPatternCommand, changeKit } from "/core/pattern/request-tree.js";
 import { createIdleSubmit } from "/frontend/shared/idle-submit.js";
 
 const $ = id => document.getElementById(id);
@@ -10,6 +13,24 @@ let pendingState = null;
 let logs = [];
 let busy = false;
 let startingPlayback = false;
+let operationVersion = 0;
+let requestAbort = null;
+for (const kit of KITS) {
+  const option = document.createElement("option");
+  option.value = kit.id;
+  option.textContent = kit.name;
+  $("kit").append(option);
+}
+
+function cancelWork() {
+  operationVersion++;
+  requestAbort?.abort();
+  requestAbort = null;
+  busy = false;
+  startingPlayback = false;
+  idleSubmit.cancel();
+  player.stop();
+}
 
 function focusRequest() {
   if (!$("request").disabled) $("request").focus();
@@ -137,6 +158,8 @@ function renderHistory() {
 }
 
 function describeChange(change) {
+  if (change.kind === "undo") return `Undid: ${change.request}`;
+  if (change.kind === "kit") return `Changed kit: ${getKit(change.before_kit).name} → ${getKit(change.after_kit).name}`;
   if (change.kind === "reset") return "Cleared the entire pattern";
   if (change.kind === "resize") return `Changed phrase from ${change.before_bars} to ${change.after_bars} bars`;
   if (change.kind === "remove") return `Removed ${labels[change.before?.instrument] ?? change.note_id}`;
@@ -162,14 +185,14 @@ function renderInspector(log) {
     return;
   }
   const result = log.result;
-  $("reset-score").textContent = Number.isFinite(result?.reset_probability) ? `Reset ${(result.reset_probability * 100).toFixed(1)}%` : "Local change";
+  $("reset-score").textContent = Number.isFinite(result?.reset_probability) ? `Reset ${(result.reset_probability * 100).toFixed(1)}%` : log.local ? "Local change" : "Request decision";
   const rows = [
     ...(result?.applied_changes ?? []).map(change => ({ status: "applied", change })),
     ...(result?.rejected_changes ?? []).map(change => ({ status: "rejected", change })),
     ...(result?.ignored_changes ?? []).map(change => ({ status: "ignored", change })),
   ];
   if (!rows.length) {
-    const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "Jev selected no pattern changes."; summary.append(empty);
+    const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = log.message ?? "No changes needed."; summary.append(empty);
   }
   for (const row of rows) {
     const element = document.createElement("div");
@@ -185,12 +208,19 @@ function renderInspector(log) {
 
 function updateControls() {
   const pending = pendingState !== null;
-  $("send").disabled = busy || pending;
-  $("request").disabled = busy || pending;
-  $("clear").disabled = busy || pending || displayedState().pattern.notes.length === 0;
+  const locked = busy || pending || startingPlayback;
+  $("undo").disabled = locked || state.undo_history.length === 0;
+  $("kit").disabled = locked;
+  document.querySelectorAll(".examples button").forEach(button => { button.disabled = locked; });
+  $("kit").value = displayedState().pattern.kit_id;
+  const currentKit = getKit(state.pattern.kit_id).name;
+  $("kit-status").textContent = pending && pendingState.pattern.kit_id !== state.pattern.kit_id ? `${currentKit} → ${getKit(pendingState.pattern.kit_id).name} next phrase` : currentKit;
+  $("send").disabled = locked;
+  $("request").disabled = locked;
+  $("clear").disabled = locked || displayedState().pattern.notes.length === 0;
   $("pending").hidden = !pending;
-  $("play").disabled = player.isPlaying();
-  $("stop").disabled = !player.isPlaying();
+  $("play").disabled = player.isPlaying() || locked;
+  $("stop").disabled = !player.isPlaying() && !busy && !startingPlayback;
 }
 
 function render() {
@@ -201,21 +231,23 @@ function render() {
 
 async function startPlayback(pattern) {
   if (player.isPlaying() || startingPlayback || pattern.notes.length === 0) return;
+  const version = operationVersion;
   startingPlayback = true;
   $("playback-status").textContent = "Loading drum kit…";
   updateControls();
   try {
-    await player.start(pattern);
-    $("playback-status").textContent = "Playing";
+    const started = await player.start(pattern);
+    if (started && version === operationVersion) $("playback-status").textContent = "Playing";
   } catch (error) {
-    $("playback-status").textContent = error.message;
+    if (version === operationVersion) $("playback-status").textContent = error.message;
   } finally {
+    if (version !== operationVersion) return;
     startingPlayback = false;
     updateControls();
   }
 }
 
-function commitOrStage(nextState) {
+function commitOrStage(nextState, autoPlay = true) {
   if (player.isPlaying()) {
     pendingState = nextState;
     player.stage(nextState.pattern);
@@ -226,56 +258,96 @@ function commitOrStage(nextState) {
   }
   render();
   persist();
-  if (!player.isPlaying()) void startPlayback(state.pattern);
+  if (autoPlay && !player.isPlaying()) void startPlayback(state.pattern);
 }
 
-$("request-form").addEventListener("submit", async event => {
-  event.preventDefault();
+async function performRequest(request, run, local = false) {
+  if (busy || pendingState || startingPlayback) return;
   idleSubmit.cancel();
-  const request = $("request").value.trim();
-  if (!request || busy || pendingState) return;
   busy = true;
+  const version = ++operationVersion;
+  requestAbort = new AbortController();
+  const signal = requestAbort.signal;
   updateControls();
-  $("request-status").textContent = "Jev is estimating the number of edits…";
+  $("request-status").textContent = local ? "Applying change…" : "Jev is choosing the kind of change…";
+  const decide = async (url, payload) => {
+    signal.throwIfAborted();
+    const started = performance.now();
+    const response = await fetch(url, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const data = await response.json();
+    signal.throwIfAborted();
+    if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
+    return { ...data, latency_ms: performance.now() - started };
+  };
   try {
-    let plannedOperationCount = 0;
-    const completed = await runPatternRequest({
-      initialState: state,
-      request,
-      maxPasses: 8,
-      estimateOperations: async sentState => {
-        const started = performance.now();
-        const response = await fetch("/api/pattern-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: sentState }) });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
-        plannedOperationCount = data.operation_count;
-        $("request-status").textContent = plannedOperationCount === 0 ? `Jev planned a ${data.phrase_bars}-bar phrase with no note edits.` : `Jev planned ${plannedOperationCount} edit${plannedOperationCount === 1 ? "" : "s"} across ${data.phrase_bars} bar${data.phrase_bars === 1 ? "" : "s"}…`;
-        return { ...data, latency_ms: performance.now() - started };
-      },
-      decide: async (sentState, pass, plan) => {
-        $("request-status").textContent = `Jev is considering edit ${pass} of ${plannedOperationCount}…`;
-        const started = performance.now();
-        const response = await fetch("/api/pattern-decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: sentState, instruments: plan.relevant_instruments }) });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
-        return { ...data, latency_ms: performance.now() - started };
-      },
-    });
-    const log = { request, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms, model: completed.model, usage: completed.usage, question_count: completed.question_count };
-    logs.push(log);
-    logs = logs.slice(-50);
+    let completed = await run(decide);
+    if (version !== operationVersion) return;
+    if (completed.result.applied_changes.length) {
+      $("request-status").textContent = "Preparing sounds…";
+      await player.load(completed.state.pattern.kit_id);
+      if (version !== operationVersion) return;
+    }
+    completed = recordUndoUnit(state, completed, request);
+    const log = { request, local, message: completed.message, routing: completed.routing, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms ?? 0, model: completed.model, usage: completed.usage, question_count: completed.question_count };
+    logs = [...logs, log].slice(-50);
     renderInspector(log);
     const tokens = Number(completed.usage?.input_tokens ?? 0) + Number(completed.usage?.output_tokens ?? 0);
-    $("request-meta").textContent = `${completed.state.pattern.bars} bars · ${completed.result.planned_operations} planned · ${completed.passes.length} edit pass${completed.passes.length === 1 ? "" : "es"} · ${Math.round(completed.latency_ms)} ms · ${completed.question_count} questions · ${completed.model}${tokens ? ` · ${tokens} tokens` : ""}`;
-    $("request").value = "";
-    commitOrStage(completed.state);
+    $("request-meta").textContent = local ? "Local change · No API call" : `${Math.round(completed.latency_ms)} ms · ${completed.question_count} questions · ${completed.passes.length} edit passes · ${completed.model}${tokens ? ` · ${tokens} tokens` : ""}`;
+    if (!local) $("request").value = "";
+    if (completed.result.applied_changes.length) commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo"));
+    else {
+      state = completed.state;
+      $("request-status").textContent = completed.message ?? "No changes needed.";
+      render();
+      persist();
+    }
   } catch (error) {
-    $("request-status").textContent = error.message;
+    if (version === operationVersion) $("request-status").textContent = error.message;
   } finally {
-    busy = false;
-    updateControls();
-    focusRequest();
+    if (version === operationVersion) {
+      busy = false;
+      requestAbort = null;
+      updateControls();
+      focusRequest();
+    }
   }
+}
+
+$("request-form").addEventListener("submit", event => {
+  event.preventDefault();
+  const request = $("request").value.trim();
+  if (!request) return;
+  void performRequest(request, decide => runPatternCommand({
+    initialState: state,
+    request,
+    decideNode: (nodeId, sentState) => {
+      $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : "Jev is selecting a kit…";
+      return decide("/api/request-decision", { node_id: nodeId, state: sentState });
+    },
+    editPattern: () => {
+      let plannedOperationCount = 0;
+      return runPatternRequest({
+        initialState: state,
+        request,
+        maxPasses: 8,
+        estimateOperations: async sentState => {
+          const data = await decide("/api/pattern-plan", { state: sentState });
+          plannedOperationCount = data.operation_count;
+          return data;
+        },
+        decide: (sentState, pass, plan) => {
+          $("request-status").textContent = `Jev is considering edit ${pass} of ${plannedOperationCount}…`;
+          return decide("/api/pattern-decision", { state: sentState, instruments: plan.relevant_instruments });
+        },
+      });
+    },
+  }));
+});
+
+$("kit").addEventListener("change", event => {
+  const kitId = event.target.value;
+  const request = `Use ${getKit(kitId).name} (manual)`;
+  void performRequest(request, async () => changeKit(state, kitId, request), true);
 });
 
 $("request").addEventListener("keydown", event => {
@@ -303,28 +375,33 @@ $("play").addEventListener("click", async () => {
 });
 
 $("stop").addEventListener("click", () => {
-  player.stop();
+  cancelWork();
   if (pendingState) { state = pendingState; pendingState = null; persist(); }
   $("playback-status").textContent = "Stopped";
+  $("request-status").textContent = "Stopped. Ready for your next request.";
   render();
 });
 
 $("volume").addEventListener("input", event => player.setVolume(Number(event.target.value)));
+
+$("undo").addEventListener("click", () => {
+  void performRequest("Undo (manual)", async () => undoLastChange(state, "Undo (manual)"), true);
+});
 
 $("clear").addEventListener("click", () => {
   const entry = { request: "Clear pattern (manual)", applied_changes: ["Cleared the whole pattern"], rejected_changes: [] };
   const next = appendHistory({ ...createPatternState(state), pattern: { ...state.pattern, notes: [] } }, entry);
   const result = { reset_probability: null, candidates: [], applied_changes: [{ kind: "reset" }], rejected_changes: [], ignored_changes: [], history_entry: entry };
   const log = { request: entry.request, result, local: true };
-  logs.push(log);
+  logs = [...logs, log].slice(-50);
   renderInspector(log);
-  commitOrStage(next);
+  commitOrStage(recordUndoUnit(state, { state: next, result }, entry.request).state);
 });
 
 $("new-session").addEventListener("click", () => {
-  idleSubmit.cancel();
-  player.stop();
+  cancelWork();
   state = createPatternState();
+  $("request").value = "";
   pendingState = null;
   logs = [];
   $("playback-status").textContent = "Stopped";
@@ -348,7 +425,7 @@ document.querySelector(".examples").addEventListener("click", event => {
   idleSubmit.schedule($("request").value, $("auto-submit").checked);
 });
 
-window.addEventListener("pagehide", () => player.stop());
+window.addEventListener("pagehide", cancelWork);
 
 try {
   const saved = await storage();
