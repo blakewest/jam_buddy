@@ -11,6 +11,7 @@ import { runPatternCommand, changeKit } from "../../core/pattern/request-tree.js
 import { createIdleSubmit } from "../shared/idle-submit.js";
 import { runPatternTree } from "../../core/pattern/request-runner.js";
 import { stateForJev } from "../../core/pattern/state.js";
+import { swungTick } from "../../core/pattern/swing.js";
 import { ticksPerBar } from "../../core/pattern/musical-time.js";
 
 type RequestLog = Partial<CommandResult> & { request: string; local?: boolean };
@@ -25,6 +26,7 @@ interface Elements {
   "phrase-steps": HTMLElement;
   "kit": HTMLSelectElement;
   "kit-status": HTMLElement;
+  "swing-status": HTMLElement;
   "volume": HTMLInputElement;
   "playback-status": HTMLElement;
   "pattern-heading": HTMLElement;
@@ -146,7 +148,7 @@ function renderGrid() {
       }
       for (const note of pattern.notes.filter(item => item.instrument === instrument && item.bar === bar)) {
         const marker = document.createElement("span"); marker.className = `note-dot ${instrument}`;
-        marker.style.left = `${note.tick / barTicks * 100}%`; marker.style.opacity = `${0.45 + note.velocity / 230}`; marker.style.transform = `translate(-50%, -50%) scale(${0.75 + note.velocity / 300})`;
+        marker.style.left = `${swungTick(note.tick, pattern.swing_percent ?? 50) / barTicks * 100}%`; marker.style.opacity = `${0.45 + note.velocity / 230}`; marker.style.transform = `translate(-50%, -50%) scale(${0.75 + note.velocity / 300})`;
         marker.title = `${labels[instrument]}, bar ${bar}, tick ${note.tick}, velocity ${note.velocity}`; track.append(marker);
       }
       row.append(label, track); grid.append(row);
@@ -192,6 +194,7 @@ function renderHistory() {
 
 function describeChange(change: CommandResult["result"]["applied_changes"][number]) {
   if (change.kind === "undo") return `Undid: ${change.request}`;
+  if (change.kind === "swing") return `Swing: ${change.before_swing}% → ${change.after_swing}%`;
   if (change.kind === "kit") return `Changed kit: ${getKit(change.before_kit!).name} → ${getKit(change.after_kit!).name}`;
   if (change.kind === "reset") return "Cleared the entire pattern";
   if (change.kind === "resize") return `Changed phrase from ${change.before_bars} to ${change.after_bars} bars`;
@@ -247,6 +250,9 @@ function updateControls() {
   $("kit").disabled = locked;
   document.querySelectorAll<HTMLButtonElement>(".examples button").forEach(button => { button.disabled = locked; });
   $("kit").value = displayedState().pattern.kit_id;
+  const currentSwing = state.pattern.swing_percent ?? 50;
+  const nextSwing = displayedState().pattern.swing_percent ?? 50;
+  $("swing-status").textContent = currentSwing !== nextSwing ? `Swing ${currentSwing}% → ${nextSwing}% next phrase` : nextSwing === 50 ? "Swing off" : `Swing ${nextSwing}%`;
   const currentKit = getKit(state.pattern.kit_id).name;
   $("kit-status").textContent = pendingState && pendingState.pattern.kit_id !== state.pattern.kit_id ? `${currentKit} → ${getKit(pendingState.pattern.kit_id).name} next phrase` : currentKit;
   $("send").disabled = locked;
@@ -322,7 +328,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
       if (version !== operationVersion) return;
     }
     completed = recordUndoUnit(state, completed, request);
-    const log = { request, local, message: completed.message, routing: completed.routing, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms ?? 0, model: completed.model, usage: completed.usage, question_count: completed.question_count };
+    const log = { request, local, message: completed.message, routing: completed.routing, visits: completed.visits, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms ?? 0, model: completed.model, usage: completed.usage, question_count: completed.question_count };
     logs = [...logs, log].slice(-50);
     renderInspector(log);
     const tokens = Number(completed.usage?.input_tokens ?? 0) + Number(completed.usage?.output_tokens ?? 0);
@@ -333,7 +339,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
         player.stop();
         $("playback-status").textContent = "Stopped";
       }
-      await commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo"));
+      await commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo" && change.kind !== "swing"));
     }
     else {
       state = completed.state;
@@ -364,6 +370,7 @@ $("request-form").addEventListener("submit", event => {
       state, request, route: async () => ({ route }),
       searchPresets: request => decide("/api/preset-search", { request }),
       selectPreset: (request, candidate_ids) => decide("/api/preset-select", { request, candidate_ids }),
+      interpretRhythm: () => decide("/api/rhythm-fill", { state: stateForJev(state, request) }),
       interpretEdit: () => decide("/api/pattern-edit-intent", { state: stateForJev(state, request) }),
       runEdit: () => runPatternRequest({
         initialState: state, request,
@@ -372,7 +379,7 @@ $("request-form").addEventListener("submit", event => {
       }),
     }),
     decideNode: (nodeId, sentState) => {
-      $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : "Jev is selecting a kit…";
+      $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : nodeId === "change_swing" ? "Jev is adjusting swing…" : "Jev is selecting a kit…";
       return decide("/api/request-decision", { node_id: nodeId, state: sentState });
     },
     editPattern: () => {

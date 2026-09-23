@@ -41,6 +41,10 @@ Use wired headphones and keep the tab visible. Hiding the tab ends the run so br
 
 ## Pattern builder
 
+Regular rhythm fills use a separate `fill_rhythm` branch. Try `16ths on the hi-hats`, `16th hats on beat 2`, or `do it on beats 2, 3 and 4 as well`. One interpretation call selects the drum, quarter/eighth/sixteenth spacing, beat/bar scope and new-note velocity. Code fills and verifies every missing position in one undoable change. Existing notes and velocities are preserved, including human timing within a 60-tick engineering tolerance; `the rest of the bar` fills missing positions without duplicating completed beats.
+
+Eighth-note swing applies across the whole groove. Try `Add a little swing` (55%), `No, swing it harder` (+10 points, up to 85%), `Less swing` (−10 points, down to 50%), or `Remove swing` (50%, original timing). From straight timing, an increase starts at 55%. These amounts are product defaults. The current amount appears in the transport; changes take effect at the next loop boundary and support saving and undo. Original note ticks and velocities stay intact: playback stretches the first eighth and compresses the second, including intervening notes, without quantizing. Loading a new preset resets added swing; any swing already performed in its source notes remains.
+
 The pattern builder starts with an empty 4/4 bar at 120 BPM and can expand to eight bars. Type a request such as `Give me a simple backbeat`, `Load a laid-back hip-hop beat`, or `Add a snare on beat 2`. Loading a preset replaces the current beat and sets its source tempo. The transport can then change it from 40–240 BPM.
 
 Every request first passes through one small TypeSafe routing question. The deterministic request tree separates editing, preset loading, clearing, shuffling, kit changes, undo, and unsupported requests. Clearing executes locally. Shuffling excludes the current preset and retains the previous search filters for requests like `No, something else`. Unsupported guidance comes from the registered capabilities.

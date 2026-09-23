@@ -1,3 +1,4 @@
+import { SWING_CHOICES } from "../core/pattern/swing.js";
 import { KITS } from "../core/pattern/kits.js";
 import { QUESTION_CHOICES, REQUEST_TREE, nodeOutcome } from "../core/pattern/request-tree.js";
 import type { HistoryEntry } from "../core/pattern/state.js";
@@ -6,7 +7,7 @@ export type RequestState = {
   request: string;
   kit_id: string;
   recent_history: HistoryEntry[];
-};
+} | { request: string };
 type RequestAnswers = { selection?: { type: "choice"; choice: string } };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,10 +52,12 @@ function buildRootQuestions() {
   const focus = [
     "Clear every note or start empty selects clear_pattern; never generate note-by-note deletions for this.",
     "Another/different beat, 'no, something else', 'try again', and 'shuffle funk' select shuffle_preset.",
+    "Requests for regular quarter/eighth/sixteenth notes on one drum select fill_rhythm, including '16ths on the hi-hats', '16th hats on beat 2', and 'do it on beats 2, 3, 4 as well' following a rhythm fill. This takes precedence over edit_pattern. Relative volume changes still select edit_pattern.",
     "A complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern.",
     "Requests like 'Undo that', 'undo', 'revert the last change' and 'take that back' select undo.",
     "Undo restores the complete latest change locally; never route these to note editing.",
     "Requests to redo, undo several changes at once, or selectively undo an older change are unsupported.",
+    "Adding or adjusting swing on the current groove selects change_swing, including 'no, swing it harder'. Explicitly asking to load a new swing-style beat still selects load_preset.",
     "A kit change selects sounds while preserving every note. A note edit changes the rhythm or velocity.",
     "Route requests for unavailable whole kits to change_kit so that node can reject them.",
   ].join(" ");
@@ -65,11 +68,13 @@ function buildKitQuestions() {
   const criteria: Record<string, unknown> = Object.fromEntries(
     KITS.map(kit => [kit.id, { name: kit.name, sound: kit.description }]),
   );
+  criteria.another_kit = { meaning: "The user wants a different/another kit without specifying a name or sound, such as 'Now a different kit', 'switch kits', or 'try another kit'. Code will choose an available kit other than the current one." };
   criteria.keep_current = { meaning: "The user asks to keep this kit, or there is no suitable directional change." };
   criteria.unsupported = {
     meaning: "Explicitly requests an unavailable kit (including LinnDrum or 909), individual drum sound replacement, or a capability beyond whole-kit selection.",
   };
   const focus = [
+    "A generic request for a different kit selects another_kit. It is supported; do not select keep_current or the current kit. No particular sound preference is required.",
     "Explicit kit names win. '505' means TR-505. 'Acoustic' or 'natural' means Acoustic.",
     "For generic 'more modern/electronic' from Acoustic choose 808 as this demo's default.",
     "'Another electronic kit' changes between 808 and TR-505.",
@@ -79,12 +84,25 @@ function buildKitQuestions() {
   return selectionQuestion("Which available whole drum kit best satisfies `request`, given the current `kit_id`?", focus, criteria);
 }
 
+function buildSwingQuestions() {
+  return { selection: { type: "choice", instructions: {
+    question: "Does `request` ask to increase, decrease, remove, or explicitly set eighth-note swing? Choose the operation, not the resulting amount.",
+    inspect: ["request"],
+    focus: "Choose relative increase/decrease for comparative requests. 'No, swing it harder' means increase, not remove. 'Add a little swing' means light. Explicit amounts must match 50 (remove), 55, 65, 75 or 85; other amounts are unsupported. Swing is applied to the whole groove. 50 means no added swing.",
+  }, criteria: SWING_CHOICES } };
+}
+
 // Question builders for the decision nodes in REQUEST_TREE. Local branches need no questions.
 export const REQUEST_QUESTIONS = Object.freeze({
   root: {
     id: "root",
     buildQuestions: buildRootQuestions,
     validate: (answers: RequestAnswers) => nodeOutcome("root", answers),
+  },
+  change_swing: {
+    id: "change_swing",
+    buildQuestions: buildSwingQuestions,
+    validate: (answers: RequestAnswers) => nodeOutcome("change_swing", answers),
   },
   change_kit: {
     id: "change_kit",
@@ -93,7 +111,9 @@ export const REQUEST_QUESTIONS = Object.freeze({
   },
 });
 
-export function validRequestState(state: unknown): state is RequestState {
+export function validRequestState(state: unknown, nodeId = "root"): state is RequestState {
+  if (nodeId === "change_swing") return hasKeys(state, ["request"])
+    && boundedText(state.request, 500) && Boolean(state.request.trim());
   if (!hasKeys(state, ["request", "kit_id", "recent_history"])) return false;
   if (!boundedText(state.request, 500) || !state.request.trim()) return false;
   if (!KITS.some(kit => kit.id === state.kit_id)) return false;

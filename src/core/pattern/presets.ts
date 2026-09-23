@@ -97,5 +97,5 @@ export function loadPreset(inputState: PatternState, selected: Preset | null | u
   let nextId = state.next_note_id;
   const notes = selected.notes.map(note => ({ id: `note_${nextId++}`, ...note }));
   const entry = { request, applied_changes: [`Loaded ${selected.name} preset`], rejected_changes: [] };
-  return appendHistory({ ...state, tempo_bpm: selected.tempo_bpm, pattern: { kit_id: state.pattern.kit_id, bars: selected.bars, meter: structuredClone(selected.meter), ticks_per_quarter: TICKS_PER_QUARTER, notes }, next_note_id: nextId }, entry);
+  return appendHistory({ ...state, tempo_bpm: selected.tempo_bpm, pattern: { kit_id: state.pattern.kit_id, swing_percent: 50, bars: selected.bars, meter: structuredClone(selected.meter), ticks_per_quarter: TICKS_PER_QUARTER, notes }, next_note_id: nextId }, entry);
 }

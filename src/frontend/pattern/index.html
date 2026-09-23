@@ -15,7 +15,7 @@
     </header>
     <section class="transport panel" aria-label="Pattern playback">
       <div class="transport-buttons"><button id="play" class="primary">▶ Play loop</button><button id="stop" disabled>■ Stop</button></div>
-      <div class="transport-meta"><label>Tempo <input id="tempo" type="number" min="40" max="240" step="1" value="120"> BPM</label><span id="phrase-bars">1 bar</span><span id="phrase-steps">4/4</span></div>
+      <div class="transport-meta"><label>Tempo <input id="tempo" type="number" min="40" max="240" step="1" value="120"> BPM</label><span id="phrase-bars">1 bar</span><span id="phrase-steps">4/4</span><span id="swing-status" role="status">Swing off</span></div>
       <label>Kit <select id="kit"></select></label><span id="kit-status" role="status">Acoustic</span>
       <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8"></label>
       <span id="playback-status" class="status" role="status">Stopped</span>
@@ -32,7 +32,7 @@
         <div class="prompt-row"><textarea id="request" maxlength="500" rows="2" placeholder="Try: Give me a simple backbeat" required></textarea><button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Ask Jev (⌘ Enter)">Ask Jev</button></div>
       </form>
       <label class="auto-submit"><input id="auto-submit" type="checkbox" checked> Auto-submit after 0.3 seconds without new text</label>
-        <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a crash on beat 1</button><button type="button">Make the snare louder</button></div>
+        <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a little swing</button><button type="button">Swing it harder</button><button type="button">Make the snare louder</button></div>
       <div class="request-status"><span id="request-status" role="status">Ready for your first request. Press ⌘ Enter to send.</span><span id="request-meta">No API call yet</span></div>
     </section>
     <div class="columns">
