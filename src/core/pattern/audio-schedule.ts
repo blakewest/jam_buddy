@@ -1,3 +1,4 @@
+import { swungTick } from "./swing.js";
 import { ticksPerBar } from "./musical-time.js";
 import { pitchForNote, sampleFamily } from "./drum-pitches.js";
 
@@ -26,7 +27,7 @@ export function eventsForWindow(pattern: PlaybackPattern, bpm: number, fromTime:
   for (let phrase = firstPhrase; phrase <= lastPhrase; phrase++) {
     const phraseTime = originTime + phrase * phraseSeconds;
     for (const note of pattern.notes) {
-      const time = phraseTime + ((note.bar - 1) * barTicks + note.tick) * tickSeconds;
+      const time = phraseTime + ((note.bar - 1) * barTicks + swungTick(note.tick, pattern.swing_percent ?? 50)) * tickSeconds;
       if (time >= fromTime && time < toTime) events.push({ ...note, ...samplePlayback(note.velocity), sample_family: sampleFamily(pitchForNote(note)), kit_id: pattern.kit_id ?? "acoustic", time });
     }
   }

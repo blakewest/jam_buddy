@@ -23,7 +23,7 @@ test("straight and triplet positions map to exact ticks", () => {
 test("legacy slot patterns migrate to tick timing and MIDI velocity", () => {
   const state = createPatternState({ notes: [{ id: "note_1", instrument: "snare", bar: 1, slot: 7, velocity_layer: 3 }] });
   assert.deepEqual(state.pattern, {
-    kit_id: "acoustic",
+    kit_id: "acoustic", swing_percent: 50,
     bars: 1,
     meter: { numerator: 4, denominator: 4 },
     ticks_per_quarter: 960,

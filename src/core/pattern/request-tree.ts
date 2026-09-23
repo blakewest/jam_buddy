@@ -1,15 +1,18 @@
 import { appendHistory, createPatternState } from "./state.js";
 import { undoLastChange } from "./undo.js";
+import { SWING_CHOICES, nextSwingPercent } from "./swing.js";
+import type { SwingAction } from "./swing.js";
 import { getKit, KITS } from "./kits.js";
 import type { Candidate, HistoryEntry, PatternChange, PatternState } from "./state.js";
 import type { PatternPass, PatternPlan, PatternRunResult } from "./runner.js";
 
-export type RequestBranchId = "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
-export type RequestQuestionId = "root" | "change_kit";
+export type RequestBranchId = "fill_rhythm" | "change_swing" | "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
+export type RequestQuestionId = "root" | "change_kit" | "change_swing";
 export type NodeAnswer = { selection?: { type: "choice"; choice: string } };
 export type NodeOutcome =
   | { next_node: RequestBranchId }
-  | { handler: "change_kit"; selection: string };
+  | { handler: "change_kit"; selection: string }
+  | { handler: "change_swing"; selection: SwingAction };
 export type NodeDecision = {
   answers: NodeAnswer;
   model?: string;
@@ -21,7 +24,7 @@ type RequestContext = {
   request: string;
   kit_id: string;
   recent_history: HistoryEntry[];
-};
+} | { request: string };
 type CommandOptions = {
   initialState: PatternState;
   request: string;
@@ -64,6 +67,7 @@ export type CommandResult = {
   question_count: number;
   message?: string | null;
   routing?: RouteDecision[];
+  visits?: { node: string; response: unknown }[];
 };
 
 // The full request tree. Each child owns its execution; only decision branches ask Jev.
@@ -71,9 +75,14 @@ export const REQUEST_TREE = {
   root: {
     id: "root" as const,
     children: {
+      fill_rhythm: { description: "fill regular quarter, eighth or sixteenth notes for one drum across requested beats or bars, including repeating the latest rhythm fill on more beats", execute: (context: BranchContext) => grooveBranch(context, "fill_rhythm") },
       edit_pattern: {
         description: "edit drum notes, rhythms, velocities, or phrase length",
         execute: editPatternBranch,
+      },
+      change_swing: {
+        description: "add, increase, decrease, or remove eighth-note swing across the whole groove",
+        execute: changeSwingBranch,
       },
       change_kit: {
         description: "switch the whole drum kit",
@@ -96,7 +105,8 @@ export const REQUEST_TREE = {
 
 export const QUESTION_CHOICES = {
   root: Object.keys(REQUEST_TREE.root.children),
-  change_kit: [...KITS.map(kit => kit.id), "keep_current", "unsupported"],
+  change_swing: Object.keys(SWING_CHOICES),
+  change_kit: [...KITS.map(kit => kit.id), "another_kit", "keep_current", "unsupported"],
 };
 
 export function unsupportedGuidance(): string {
@@ -112,6 +122,7 @@ export function nodeOutcome(questionId: RequestQuestionId, answers: NodeAnswer):
     throw new Error("Invalid request decision.");
   }
   if (questionId === "root") return { next_node: answer.choice as RequestBranchId };
+  if (questionId === "change_swing") return { handler: "change_swing", selection: answer.choice as SwingAction };
   return { handler: "change_kit", selection: answer.choice };
 }
 
@@ -134,7 +145,7 @@ async function grooveBranch(context: BranchContext, category: RequestBranchId): 
 }
 
 export type RootRoute = { category: RequestBranchId; next_node: string | null; message: string | null };
-const nextNodes: Record<RequestBranchId, string | null> = { edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
+const nextNodes: Record<RequestBranchId, string | null> = { fill_rhythm: "rhythm_fill", change_swing: "change_swing", edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
 export const REQUEST_CATEGORIES = Object.freeze(Object.fromEntries(Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { description: branch.description, next_node: nextNodes[id as RequestBranchId] }])));
 export const unsupportedMessage = unsupportedGuidance;
 export function resolveRoot(category: string): RootRoute {
@@ -142,11 +153,31 @@ export function resolveRoot(category: string): RootRoute {
   return { category: category as RequestBranchId, next_node: REQUEST_CATEGORIES[category].next_node, message: category === "unsupported" ? unsupportedGuidance() : null };
 }
 
+async function changeSwingBranch(context: BranchContext): Promise<CommandResult> {
+  const outcome = await context.ask("change_swing");
+  if (!("handler" in outcome) || outcome.handler !== "change_swing") throw new Error("Invalid swing decision.");
+  const before = context.state.pattern.swing_percent ?? 50;
+  const after = nextSwingPercent(before, outcome.selection);
+  const changes: PatternChange[] = before === after ? [] : [{ kind: "swing", before_swing: before, after_swing: after }];
+  const message = outcome.selection === "unsupported" ? "Swing supports the whole groove in eighth notes: light (55%), medium (65%), strong (75%), maximum (85%), more, less, or off." : before === after ? `Swing is already ${after}%.` : `Swing: ${before}% → ${after}%.`;
+  const historyEntry = { request: context.request, applied_changes: changes.map(() => message), rejected_changes: [] };
+  return {
+    state: appendHistory({ ...context.state, pattern: { ...context.state.pattern, swing_percent: after } }, historyEntry),
+    result: { applied_changes: changes, rejected_changes: [], ignored_changes: [], candidates: [], history_entry: historyEntry },
+    passes: [], plan: null, message, usage: {}, latency_ms: 0, question_count: 0, model: null,
+  };
+}
+
 async function changeKitBranch(context: BranchContext): Promise<CommandResult> {
   const outcome = await context.ask("change_kit");
   if (!("selection" in outcome)) throw new Error("Invalid kit decision.");
   if (outcome.selection === "unsupported") return unsupportedBranch(context);
-  const kitId = outcome.selection === "keep_current" ? context.state.pattern.kit_id : outcome.selection;
+  const currentKit = context.state.pattern.kit_id;
+  if (outcome.selection === "another_kit") {
+    const nextIndex = (KITS.findIndex(kit => kit.id === currentKit) + 1) % KITS.length;
+    return changeKit(context.state, KITS[nextIndex].id, context.request);
+  }
+  const kitId = outcome.selection === "keep_current" ? currentKit : outcome.selection;
   return changeKit(context.state, kitId, context.request);
 }
 
@@ -176,9 +207,11 @@ export function changeKit(initialState: PatternState, kitId: string, request: st
 
 export async function runPatternCommand({ initialState, request, decideNode, editPattern, grooveRequest }: CommandOptions): Promise<CommandResult> {
   const state = createPatternState(initialState);
-  const sentState = { request, kit_id: state.pattern.kit_id, recent_history: state.recent_history };
   const routing: RouteDecision[] = [];
   const ask = async (questionId: RequestQuestionId): Promise<NodeOutcome> => {
+    const sentState = questionId === "change_swing"
+      ? { request }
+      : { request, kit_id: state.pattern.kit_id, recent_history: state.recent_history };
     const decision = await decideNode(questionId, sentState);
     const outcome = nodeOutcome(questionId, decision.answers);
     routing.push({ node_id: questionId, sent_state: sentState, ...decision, outcome });

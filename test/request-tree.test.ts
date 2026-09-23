@@ -74,3 +74,20 @@ test("unsupported root branch returns guidance without invoking an editor or ano
   assert.deepEqual(completed.state.pattern, initialState.pattern);
   assert.equal(completed.message, unsupportedGuidance());
 });
+
+test("another kit cycles through available kits without changing the groove and can be undone", async () => {
+  const { runPatternCommand } = await import("../src/core/pattern/request-tree.js");
+  const { recordUndoUnit, undoLastChange } = await import("../src/core/pattern/undo.js");
+  let state = createPatternState({ ...initialState, pattern: { ...initialState.pattern, swing_percent: 65 } });
+  for (const expected of ["tr_808", "tr_505", "acoustic"]) {
+    const before = state;
+    const completed = await runPatternCommand({ initialState: before, request: "Now a different kit.", decideNode: async node => decision(node === "root" ? "change_kit" : "another_kit") });
+    state = recordUndoUnit(before, completed, "Now a different kit.").state;
+    assert.equal(state.pattern.kit_id, expected);
+    assert.notEqual(state.pattern.kit_id, before.pattern.kit_id);
+    assert.deepEqual(state.pattern.notes, before.pattern.notes);
+    assert.equal(state.pattern.swing_percent, 65);
+    assert.equal(state.tempo_bpm, before.tempo_bpm);
+    assert.deepEqual(undoLastChange(state).state.pattern, before.pattern);
+  }
+});

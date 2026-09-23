@@ -4,6 +4,7 @@ import kitManifest from "../frontend/assets/virtuosity/manifest.json" with { typ
 import { TIMING_QUESTION } from "../ai/timing-question.js";
 import { buildPatternQuestions, buildScopeQuestion, buildTargetQuestion, buildTargetDetails, patternSummary, PLANNING_QUESTIONS } from "../ai/pattern-questions.js";
 import { requestBudgetError } from "../ai/request-budget.js";
+import { buildRhythmFillQuestions, rhythmFillContext, rhythmFillIntent } from "../ai/rhythm-fill-questions.js";
 import { buildVelocityEditQuestions, velocityIntent } from "../ai/velocity-edit-questions.js";
 import { ROOT_QUESTIONS } from "../ai/request-tree-questions.js";
 import { attributesFromAnswers, buildPresetSelectionQuestions, PRESET_SEARCH_QUESTIONS } from "../ai/preset-questions.js";
@@ -52,7 +53,7 @@ const PUBLIC_FILES = new Map<string, [URL, string]>([
   ["/recorded-run.json", staticFile("../../recordings/live-60s.json", "application/json")],
 ]);
 const KIT_SAMPLE_PATHS = new Set(Object.values(kitManifest.families).flat().map(file => `/assets/virtuosity/${file}`));
-for (const name of ["kits", "request-tree", "undo"]) PUBLIC_FILES.set(`/core/pattern/${name}.js`, staticFile(`../core/pattern/${name}.js`, "text/javascript"));
+for (const name of ["kits", "request-tree", "undo", "swing", "rhythm-fill"]) PUBLIC_FILES.set(`/core/pattern/${name}.js`, staticFile(`../core/pattern/${name}.js`, "text/javascript"));
 for (const page of ["pattern", "timing", "presets"]) PUBLIC_FILES.set(`/frontend/${page}/app.js`, staticFile(`../frontend/${page}/app.js`, "text/javascript"));
 PUBLIC_FILES.set("/frontend/timing/audio.js", staticFile("../frontend/timing/audio.js", "text/javascript"));
 const MODULE_ALIASES: Record<string, string> = { "/app.js": "/frontend/timing/app.js", "/pattern-app.js": "/frontend/pattern/app.js", "/pattern-audio.js": "/frontend/pattern/audio.js", "/timing-audio.js": "/frontend/timing/audio.js", "/presets-app.js": "/frontend/presets/app.js" };
@@ -155,7 +156,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       } catch { json(res, 404, { error: "File not found." }); }
       return;
     }
-    if (!["/api/request-decision", "/api/decision", "/api/pattern-decision", "/api/pattern-plan", "/api/pattern-edit-intent", "/api/pattern-route", "/api/preset-search", "/api/preset-select"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
+    if (!["/api/rhythm-fill", "/api/request-decision", "/api/decision", "/api/pattern-decision", "/api/pattern-plan", "/api/pattern-edit-intent", "/api/pattern-route", "/api/preset-search", "/api/preset-select"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
     if (req.headers.origin && req.headers.origin !== `http://${host}`) return json(res, 403, { error: "Foreign origin rejected." });
     if (req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Cross-site request rejected." });
     if (req.headers["content-type"]?.split(";")[0].trim() !== "application/json") return json(res, 415, { error: "JSON required." });
@@ -172,17 +173,18 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       payload = JSON.parse(Buffer.concat(chunks).toString());
     } catch { return json(res, 400, { error: "Invalid JSON." }); }
     const planRequest = path === "/api/pattern-plan";
+    const rhythmRequest = path === "/api/rhythm-fill";
     const intentRequest = path === "/api/pattern-edit-intent";
     const editRequest = path === "/api/pattern-decision";
     const routeRequest = path === "/api/pattern-route";
     const treeRequest = path === "/api/request-decision";
     const presetSearchRequest = path === "/api/preset-search";
     const presetSelectRequest = path === "/api/preset-select";
-    const patternRequest = editRequest || planRequest || intentRequest;
+    const patternRequest = editRequest || planRequest || intentRequest || rhythmRequest;
     const validInstruments = editRequest && exactKeys(payload, ["state", "instruments"]) && Array.isArray(payload.instruments) && payload.instruments.length >= 1 && payload.instruments.length <= INSTRUMENTS.length && new Set(payload.instruments).size === payload.instruments.length && payload.instruments.every(instrument => INSTRUMENTS.includes(instrument));
     const validRequestText = typeof payload?.request === "string" && Boolean(payload.request.trim()) && payload.request.length <= 500;
     const validCandidateIds = presetSelectRequest && exactKeys(payload, ["request", "candidate_ids"]) && validRequestText && Array.isArray(payload.candidate_ids) && payload.candidate_ids.length >= 1 && payload.candidate_ids.length <= 8 && new Set(payload.candidate_ids).size === payload.candidate_ids.length && payload.candidate_ids.every(id => presetById(id));
-    const validPayload = treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestQuestion(payload.node_id) && validRequestState(payload.state) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : routeRequest || presetSearchRequest ? exactKeys(payload, ["request"]) && validRequestText : presetSelectRequest ? validCandidateIds : exactKeys(payload, ["state"]);
+    const validPayload = treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestQuestion(payload.node_id) && validRequestState(payload.state, payload.node_id) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : routeRequest || presetSearchRequest ? exactKeys(payload, ["request"]) && validRequestText : presetSelectRequest ? validCandidateIds : exactKeys(payload, ["state"]);
     if (!validPayload || (patternRequest && !validPatternState(payload.state)) || (!treeRequest && !patternRequest && !routeRequest && !presetSearchRequest && !presetSelectRequest && !validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
     if (!apiKey?.trim()) return json(res, 503, { code: "missing_api_key", error: "Set TYPESAFE_API_KEY in the local .env file, then restart the server." });
     const candidates = presetSelectRequest ? payload.candidate_ids.map(id => presetById(id)!) : [];
@@ -193,6 +195,10 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     if (intentRequest) {
       questions = buildVelocityEditQuestions(payload.state);
       upstreamState = { request: payload.state.request, pattern: { bars: payload.state.pattern.bars, meter: payload.state.pattern.meter } };
+    }
+    if (rhythmRequest) {
+      questions = buildRhythmFillQuestions(payload.state);
+      upstreamState = rhythmFillContext(payload.state);
     }
     if (treeRequest) questions = REQUEST_QUESTIONS[payload.node_id].buildQuestions();
     const abort = new AbortController();
@@ -244,6 +250,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
         const outcome = REQUEST_QUESTIONS[payload.node_id].validate(data.answers);
         return json(res, 200, { answers: data.answers, outcome, model: data.model, usage, question_count: questionCount });
       }
+      if (rhythmRequest) return json(res, 200, { intent: rhythmFillIntent(payload.state, data.answers), answers: data.answers, model: data.model, usage, question_count: questionCount });
       if (intentRequest) return json(res, 200, { intent: velocityIntent(payload.state, data.answers), answers: data.answers, model: data.model, usage, question_count: questionCount });
       if (routeRequest || presetSearchRequest || presetSelectRequest) {
         if (!validPatternAnswers(data, questions)) return json(res, 502, { error: "TypeSafe returned invalid request-tree answers." });

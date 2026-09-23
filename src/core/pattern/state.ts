@@ -1,11 +1,12 @@
 import { describeTick, editPositions, tickForPosition, ticksPerBar, TICKS_PER_QUARTER, validMeter, velocityForLayer } from "./musical-time.js";
 import { defaultPitch, pitchForNote, validPitchForInstrument } from "./drum-pitches.js";
+import { normalizedSwing } from "./swing.js";
 import { KITS } from "./kits.js";
 import type { Meter } from "./musical-time.js";
 
 export type Instrument = "kick" | "snare" | "closed_hat" | "open_hat" | "ride" | "crash" | "high_tom" | "mid_tom" | "floor_tom";
 export type PatternNote = { id: string; instrument: Instrument; bar: number; tick: number; velocity: number; midi_pitch?: number };
-export type Pattern = { bars: number; meter: Meter; ticks_per_quarter: number; notes: PatternNote[]; kit_id: string };
+export type Pattern = { bars: number; meter: Meter; ticks_per_quarter: number; notes: PatternNote[]; kit_id: string; swing_percent?: number };
 export type HistoryEntry = { request: string; applied_changes: string[]; rejected_changes: string[] };
 export type PresetAttributes = { genres?: string[]; feels?: string[]; meter?: string };
 export type PresetContext = { preset_id: string; attributes: PresetAttributes };
@@ -16,7 +17,7 @@ export type JevNoulAnswer = { type: "noul"; noul: number };
 export type JevAnswers = Record<string, JevChoiceAnswer | JevNoulAnswer | undefined>;
 type ProposedNote = Omit<PatternNote, "id"> & { id?: string };
 export type Candidate = { kind: "add" | "remove" | "modify"; source: string; score: number; order: number; note_id?: string; proposed?: ProposedNote };
-export type PatternChange = { kind: string; source?: string; score?: number; note_id?: string; proposed?: ProposedNote; before?: PatternNote; after?: PatternNote; reason?: string; pass?: number; before_bars?: number; after_bars?: number; removed_notes?: number; before_kit?: string; after_kit?: string; request?: string; preset_id?: string; preset_name?: string };
+export type PatternChange = { kind: string; source?: string; score?: number; note_id?: string; proposed?: ProposedNote; before?: PatternNote; after?: PatternNote; reason?: string; pass?: number; before_bars?: number; after_bars?: number; removed_notes?: number; before_swing?: number; after_swing?: number; before_kit?: string; after_kit?: string; request?: string; preset_id?: string; preset_name?: string };
 export type ApplyPatternResult = { reset_probability: number; candidates: Candidate[]; applied_changes: PatternChange[]; rejected_changes: PatternChange[]; ignored_changes: PatternChange[]; history_entry: HistoryEntry };
 export type PatternJevState = { request: string; pattern: { bars: number; meter: Meter; ticks_per_quarter: number; parts: Record<Instrument, { id: string; bar: number; tick: number; position: string; velocity: number }[]> }; music_reference: typeof MUSIC_REFERENCE; recent_history: HistoryEntry[] };
 type SavedNote = Partial<PatternNote> & { slot?: number; velocity_layer?: number };
@@ -63,7 +64,7 @@ export function createPatternState(input: unknown = {}): PatternState {
     && Number.isInteger(note.velocity) && note.velocity >= 1 && note.velocity <= 127
     && (note.midi_pitch === undefined || validPitchForInstrument(note.midi_pitch, note.instrument))) : [];
   return {
-    pattern: { bars, meter, ticks_per_quarter: TICKS_PER_QUARTER, notes, kit_id: KITS.some(kit => kit.id === pattern.kit_id) ? pattern.kit_id! : "acoustic" },
+    pattern: { bars, meter, swing_percent: normalizedSwing(pattern.swing_percent), ticks_per_quarter: TICKS_PER_QUARTER, notes, kit_id: KITS.some(kit => kit.id === pattern.kit_id) ? pattern.kit_id! : "acoustic" },
     tempo_bpm: Number.isInteger(saved.tempo_bpm) && saved.tempo_bpm! >= 40 && saved.tempo_bpm! <= 240 ? saved.tempo_bpm! : 120,
     undo_history: Array.isArray(saved.undo_history) ? saved.undo_history.slice(-MAX_UNDO_HISTORY)
       .filter(unit => unit && typeof unit.request === "string" && unit.pattern && Array.isArray(unit.pattern.notes))

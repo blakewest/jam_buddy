@@ -46,7 +46,7 @@ test("the pattern supports cymbal and tom voices", () => {
 
 test("a new pattern is an empty one-bar phrase", () => {
   const state = createPatternState();
-  assert.deepEqual(state.pattern, { bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [], kit_id: "acoustic" });
+  assert.deepEqual(state.pattern, { bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [], kit_id: "acoustic", swing_percent: 50 });
   assert.deepEqual(state.recent_history, []);
 });
 
@@ -83,7 +83,7 @@ test("different snare articulations can share a tick", () => {
 
 test("resizing preserves notes when expanding and removes truncated bars when shrinking", () => {
   const state = createPatternState({ bars: 2, notes: [note("note_1", "kick", 1), note("note_2", "snare", 5, 4, 2)] });
-  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: state.pattern.notes, kit_id: "acoustic" });
+  assert.deepEqual(resizePattern(state, 4).pattern, { bars: 4, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: state.pattern.notes, kit_id: "acoustic", swing_percent: 50 });
   assert.deepEqual(resizePattern(state, 1).pattern.notes, [note("note_1", "kick", 1)]);
 });
 

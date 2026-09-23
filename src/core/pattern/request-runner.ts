@@ -1,5 +1,7 @@
 import { filterPresets, loadPreset, presetById, PRESETS } from "./presets.js";
 import { appendHistory, createPatternState } from "./state.js";
+import { applyRhythmFill } from "./rhythm-fill.js";
+import type { RhythmIntent } from "./rhythm-fill.js";
 import { applyVelocityEdit } from "./velocity-edit.js";
 import type { VelocityIntent } from "./velocity-edit.js";
 import type { PatternState, PresetAttributes, PatternChange, HistoryEntry } from "./state.js";
@@ -8,9 +10,9 @@ import type { PatternRunResult, PatternPlan, PatternPass } from "./runner.js";
 import type { Decision } from "../../ai/question-types.js";
 export type SearchResult = Decision & { attributes?: PresetAttributes; candidate_ids: string[]; has_explicit_filters?: boolean; alternatives?: unknown };
 export type TreeResult = { state: PatternState; route: RootRoute; visits: { node: string; response: unknown }[]; result: { applied_changes: PatternChange[]; message?: string | null; tempo_bpm?: number; preset_id?: string; preset_name?: string; alternatives?: unknown; rejected_changes?: PatternChange[]; ignored_changes?: PatternChange[]; history_entry?: HistoryEntry }; model: string | null; usage: Record<string, number>; question_count: number; latency_ms: number; plan?: PatternPlan | null; passes?: PatternPass[] };
-type TreeOptions = { state: PatternState; request: string; route: (request: string) => Promise<Decision & { route: RootRoute }>; searchPresets: (request: string) => Promise<SearchResult>; selectPreset: (request: string, ids: string[]) => Promise<Decision & { preset_id: string }>; runEdit: () => Promise<PatternRunResult>; interpretEdit?: () => Promise<Decision & { intent: VelocityIntent | null }>; random?: () => number };
+type TreeOptions = { state: PatternState; request: string; route: (request: string) => Promise<Decision & { route: RootRoute }>; searchPresets: (request: string) => Promise<SearchResult>; selectPreset: (request: string, ids: string[]) => Promise<Decision & { preset_id: string }>; runEdit: () => Promise<PatternRunResult>; interpretRhythm?: () => Promise<Decision & { intent: RhythmIntent | null }>; interpretEdit?: () => Promise<Decision & { intent: VelocityIntent | null }>; random?: () => number };
 
-export async function runPatternTree({ state, request, route, searchPresets, selectPreset, runEdit, interpretEdit, random = Math.random }: TreeOptions): Promise<TreeResult> {
+export async function runPatternTree({ state, request, route, searchPresets, selectPreset, runEdit, interpretEdit, interpretRhythm, random = Math.random }: TreeOptions): Promise<TreeResult> {
   const visits: TreeResult["visits"] = [];
   const usage: Record<string, number> = {};
   let latencyMs = 0;
@@ -35,6 +37,15 @@ export async function runPatternTree({ state, request, route, searchPresets, sel
     const result = { message: "Cleared the whole pattern.", applied_changes: [{ kind: "reset" }] };
     record("pattern_clear", result);
     return { state: nextState, route: routed.route, visits, result, model, usage, question_count: questionCount, latency_ms: latencyMs };
+  }
+
+  if (routed.route.category === "fill_rhythm") {
+    if (!interpretRhythm) throw new Error("Rhythm fill is unavailable.");
+    const interpreted = await interpretRhythm();
+    record("rhythm_interpret", interpreted);
+    if (!interpreted.intent) return { state, route: routed.route, visits, result: { applied_changes: [], message: "Please name a drum and quarter, eighth or sixteenth notes, optionally with beat or bar numbers." }, model, usage, question_count: questionCount, latency_ms: latencyMs };
+    const applied = applyRhythmFill(state, interpreted.intent, request);
+    return { ...applied, route: routed.route, visits, model, usage, question_count: questionCount, latency_ms: latencyMs };
   }
 
   if (routed.route.category === "edit_pattern") {

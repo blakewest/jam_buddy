@@ -270,3 +270,47 @@ test("a funk request reaches both kept funk grooves before Jev selects", async (
     return Response.json({ model: "test-jev", answers, usage: {} });
   } });
 });
+
+test("swing decision endpoint validates branch context and returns a typed adjustment", async () => {
+  let calls = 0;
+  await withServer(async url => {
+    const ask = (node_id: string, state: unknown) => fetch(`${url}/api/request-decision`, { method: "POST", headers: { "Content-Type": "application/json", Origin: url }, body: JSON.stringify({ node_id, state }) });
+    const response = await ask("change_swing", { request: "No, swing it harder" });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).outcome, { handler: "change_swing", selection: "increase" });
+    for (const swing_percent of ["55", 49, 86, null]) assert.equal((await ask("change_swing", { request: "more swing", swing_percent })).status, 400);
+    assert.equal((await ask("root", { request: "more swing", swing_percent: 55 })).status, 400);
+    assert.equal(calls, 1);
+    assert.equal((await fetch(`${url}/core/pattern/swing.js`)).status, 200);
+  }, { fetchImpl: async (_url, options) => {
+    calls++;
+    const payload = JSON.parse(String(options?.body));
+    assert.deepEqual(payload.state, { request: "No, swing it harder" });
+    assert.equal(requestBudgetError(payload.state, payload.questions), null);
+    const choices = Object.keys(payload.questions.selection.criteria);
+    return Response.json({ model: "test-jev", answers: { selection: { type: "choice", choice: "increase", confidence: 1, probabilities: Object.fromEntries(choices.map(choice => [choice, choice === "increase" ? 1 : 0])) } }, usage: { input_tokens: 1, output_tokens: 1 } });
+  } });
+});
+
+test("rhythm endpoint interprets targets together and excludes full note state from upstream context", async () => {
+  const history = [{ request: "add a kick", applied_changes: ["Added kick"], rejected_changes: [] }, { request: "16th hats on beat 1", applied_changes: ["Filled closed_hat with sixteenths in bars 1, beats 1; added 2 notes."], rejected_changes: [] }];
+  const sent = stateForJev(createPatternState({ recent_history: history }), "Do it on beats 2, 3 and 4 as well");
+  await withServer(async url => {
+    const response = await fetch(`${url}/api/rhythm-fill`, { method: "POST", headers: { "Content-Type": "application/json", Origin: url }, body: JSON.stringify({ state: sent }) });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.intent, { instrument: "closed_hat", note_value: "sixteenths", bars: [1], beats: [2,3,4], velocity: 64 });
+    assert.equal((await fetch(`${url}/core/pattern/rhythm-fill.js`)).status, 200);
+  }, { fetchImpl: async (_url, options) => {
+    const payload = JSON.parse(String(options?.body));
+    assert.deepEqual(payload.state.previous_change, history[1]);
+    assert.equal("pattern" in payload.state, false);
+    assert.equal(requestBudgetError(payload.state, payload.questions), null);
+    const selections: Record<string, string> = { operation: "fill", instrument: "closed_hat", note_value: "sixteenths", beat_scope: "selected", bar_scope: "all", velocity: "medium" };
+    const answers = Object.fromEntries(Object.entries(payload.questions).map(([id, question]) => {
+      const q = question as {type:string; criteria:Record<string,string>};
+      return [id, q.type === "choice" ? { type: "choice", choice: selections[id], confidence: 1, probabilities: Object.fromEntries(Object.keys(q.criteria).map(c => [c, c === selections[id] ? 1 : 0])) } : { type: "noul", noul: id === "beat_1" ? 0 : 1 }];
+    }));
+    return Response.json({ model: "test-jev", answers, usage: { input_tokens: 1, output_tokens: 1 } });
+  } });
+});
