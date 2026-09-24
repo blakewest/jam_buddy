@@ -60,7 +60,9 @@ test("each existing note adds four questions with its full meaning", () => {
   const sentNote = { id: "note_7", instrument: "open_hat", bar: 1, tick: 3600, position: "beat_4_a", velocity: 32 };
   for (const suffix of ["operation", "timing", "velocity", "instrument"]) assert.deepEqual(questions[`note_7_${suffix}`].instructions.note, sentNote);
   assert.deepEqual(Object.keys(questions.note_7_operation.criteria), ["remove", "modify", "no_op"]);
-  assert.deepEqual(Object.keys(questions.note_7_timing.criteria), ["earlier_eighth", "earlier_sixteenth", "earlier_eighth_triplet", "earlier_sixteenth_triplet", "no_change", "later_sixteenth_triplet", "later_eighth_triplet", "later_sixteenth", "later_eighth"]);
+  assert.deepEqual(Object.keys(questions.note_7_timing.criteria), ["earlier_eighth", "earlier_sixteenth", "earlier_eighth_triplet", "earlier_sixteenth_triplet", "earlier_10ms", "no_change", "later_10ms", "later_sixteenth_triplet", "later_eighth_triplet", "later_sixteenth", "later_eighth"]);
+  assert.match(JSON.stringify(questions.note_7_timing), /just a hair/);
+  assert.match(JSON.stringify(questions.note_7_timing), /a little earlier/);
 });
 
 test("only notes from planned instruments receive edit questions", () => {

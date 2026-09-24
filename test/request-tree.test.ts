@@ -63,7 +63,7 @@ test("unsupported root branch returns guidance without invoking an editor or ano
   const visited: string[] = [];
   const completed = await runPatternCommand({
     initialState,
-    request: "Add compression",
+    request: "Add distortion",
     decideNode: async node => {
       visited.push(node);
       return decision("unsupported");
@@ -90,4 +90,35 @@ test("another kit cycles through available kits without changing the groove and 
     assert.equal(state.tempo_bpm, before.tempo_bpm);
     assert.deepEqual(undoLastChange(state).state.pattern, before.pattern);
   }
+});
+
+test("compression and polish commands preserve notes, persist, and undo as one change", async () => {
+  const { runPatternCommand } = await import("../src/core/pattern/request-tree.js");
+  const { recordUndoUnit, undoLastChange } = await import("../src/core/pattern/undo.js");
+  let state = initialState;
+  for (const [request, category] of [
+    ["make the drums punchier", "add_compression"],
+    ["polish it up", "polish_mix"],
+  ]) {
+    const before = state;
+    const completed = await runPatternCommand({ initialState: before, request, decideNode: async node => {
+      assert.equal(node, "root");
+      return decision(category);
+    }, editPattern: () => { throw new Error("Effects must not edit notes"); } });
+    state = recordUndoUnit(before, completed, request).state;
+    assert.deepEqual(state.pattern.notes, before.pattern.notes);
+    assert.equal(completed.result.applied_changes[0].kind, "effect");
+  }
+  assert.deepEqual(createPatternState(JSON.parse(JSON.stringify(state))).pattern.effects, { compression: true, polish: true });
+  assert.deepEqual(undoLastChange(state).state.pattern.effects, { compression: true, polish: false });
+  const repeat = await runPatternCommand({ initialState: state, request: "can you make this hit harder?", decideNode: async () => decision("add_compression") });
+  assert.equal(repeat.result.applied_changes.length, 0);
+  assert.equal(recordUndoUnit(state, repeat, "again").state.undo_history.length, state.undo_history.length);
+});
+
+test("loading another groove keeps the session effects", async () => {
+  const { loadPreset, presetById } = await import("../src/core/pattern/presets.js");
+  const withEffects = createPatternState({ ...initialState, pattern: { ...initialState.pattern, effects: { compression: true, polish: true } } });
+  const loaded = loadPreset(withEffects, presetById("simple_backbeat"), "new beat");
+  assert.deepEqual(loaded.pattern.effects, { compression: true, polish: true });
 });

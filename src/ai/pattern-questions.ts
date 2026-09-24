@@ -71,7 +71,9 @@ const timingCriteria = {
   earlier_sixteenth: { direction: "earlier", interval: "one straight sixteenth note" },
   earlier_eighth_triplet: { direction: "earlier", interval: "one eighth-note triplet step" },
   earlier_sixteenth_triplet: { direction: "earlier", interval: "one sixteenth-note triplet step" },
+  earlier_10ms: { direction: "earlier", interval: "about 10 milliseconds", use_only_for: "Explicit micro timing: 'just a hair early', 'a touch early', or 'just slightly earlier'. Never choose for 'a little earlier'." },
   no_change: { direction: "unchanged", sixteenth_note_steps: 0 },
+  later_10ms: { direction: "later", interval: "about 10 milliseconds", use_only_for: "Explicit micro timing: 'just a hair late', 'a touch late', or 'just slightly later'. Never choose for 'a little later'." },
   later_sixteenth_triplet: { direction: "later", interval: "one sixteenth-note triplet step" },
   later_eighth_triplet: { direction: "later", interval: "one eighth-note triplet step" },
   later_sixteenth: { direction: "later", interval: "one straight sixteenth note" },
@@ -141,7 +143,7 @@ function noteQuestions(note: PatternJevState["pattern"]["parts"][Instrument][num
     },
     [`${note.id}_timing`]: {
       type: "choice",
-      instructions: instructions({ premise: "Assume this exact note will be modified rather than removed.", question: "How should its timing change to satisfy `request`?", grid: "Each step is one sixteenth note; movement can cross bar lines and wraps around the complete phrase." }),
+      instructions: instructions({ premise: "Assume this exact note will be modified rather than removed.", question: "How should its timing change to satisfy `request`?", grid: "Grid moves use note subdivisions and can cross bar lines. 'Move it a little earlier' or 'a little later' means a grid move, not a micro nudge. Choose an about-10ms micro move only for explicit 'just a hair', 'a touch', or 'just slightly' early or late. Movement wraps around the complete phrase." }),
       criteria: timingCriteria,
     },
     [`${note.id}_velocity`]: {

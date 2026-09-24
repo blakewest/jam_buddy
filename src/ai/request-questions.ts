@@ -84,13 +84,16 @@ function buildRootQuestions() {
     "Clear every note or start empty selects clear_pattern; never generate note-by-note deletions for this.",
     "Another/different beat, 'no, something else', 'try again', and 'shuffle funk' select shuffle_preset.",
     "Requests for regular quarter/eighth/sixteenth notes on one drum select fill_rhythm, including '16ths on the hi-hats', '16th hats on beat 2', and 'do it on beats 2, 3, 4 as well' following a rhythm fill. This takes precedence over edit_pattern. Relative volume changes still select edit_pattern.",
+    "A request to nudge a hit 'just a hair', 'a touch', or 'just slightly' early or late selects edit_pattern. So does moving a hit a little earlier or later; the editor decides the timing amount.",
     "A speech-only request for a complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern. A request to reproduce an accompanying demonstration selects recorded_rhythm instead of load_preset, even if it begins with give me a beat.",
     "If recording is present, inspect recording.transcript, recording.words and recording.hit_onsets_seconds together. The transcript can OMIT the entire beatbox demonstration. An introduction such as give me a beat like... followed by a sequence of measured hits selects recorded_rhythm, not a generic preset. Word timestamps are approximate: Whisper can stretch the final word across the demonstration. Pure beatboxing also selects recorded_rhythm. Hit count alone does not establish beatboxing because speech produces transients too. Speech-only instructions such as can you swing it or load a funk beat select their normal branches. Corrections to prior take notes use edit_pattern.",
     "Requests like 'Undo that', 'undo', 'revert the last change' and 'take that back' select undo.",
     "Undo restores the complete latest change locally; never route these to note editing.",
     "Requests to redo, undo several changes at once, or selectively undo an older change are unsupported.",
     "Adding or adjusting swing on the current groove selects change_swing, including 'no, swing it harder'. Explicitly asking to load a new swing-style beat still selects load_preset.",
+    "Making the whole beat slower or faster, or setting a specific BPM, selects change_tempo. A new preset requested by style still selects load_preset.",
     "A kit change selects sounds while preserving every note. A note edit changes the rhythm or velocity.",
+    "Make drums punchier, add compression, or make this hit harder selects add_compression. Polish it up or master it selects polish_mix. These are whole-mix effects, not note velocity edits.",
     "Route requests for unavailable whole kits to change_kit so that node can reject them.",
   ].join(" ");
   return selectionQuestion("Which single supported category does `request` belong to?", focus, criteria);
@@ -124,6 +127,19 @@ function buildSwingQuestions() {
   }, criteria: SWING_CHOICES } };
 }
 
+function buildTempoQuestions() {
+  return { selection: { type: "choice", instructions: {
+    question: "What tempo change does `request` ask for? Choose the operation; code handles the BPM value.",
+    inspect: ["request"],
+    focus: "A stated target such as 'speed it up to like 130 bpm' means set_exact, not increase. Slower or faster without a target means decrease or increase. Do not change individual note velocity or swing here.",
+  }, criteria: {
+    increase: "Speed up the whole beat without a specific target BPM.",
+    decrease: "Slow down the whole beat without a specific target BPM.",
+    set_exact: "Set the whole beat to one stated target BPM, even if phrased as speed up or slow down.",
+    unsupported: "No clear whole-beat tempo action, or a different kind of change.",
+  } } };
+}
+
 // Question builders for the decision nodes in REQUEST_TREE. Local branches need no questions.
 export const REQUEST_QUESTIONS = Object.freeze({
   root: {
@@ -136,6 +152,11 @@ export const REQUEST_QUESTIONS = Object.freeze({
     buildQuestions: buildSwingQuestions,
     validate: (answers: RequestAnswers) => nodeOutcome("change_swing", answers),
   },
+  change_tempo: {
+    id: "change_tempo",
+    buildQuestions: buildTempoQuestions,
+    validate: (answers: RequestAnswers) => nodeOutcome("change_tempo", answers),
+  },
   change_kit: {
     id: "change_kit",
     buildQuestions: buildKitQuestions,
@@ -144,7 +165,7 @@ export const REQUEST_QUESTIONS = Object.freeze({
 });
 
 export function validRequestState(state: unknown, nodeId = "root"): state is RequestState {
-  if (nodeId === "change_swing") return hasKeys(state, ["request"])
+  if (nodeId === "change_swing" || nodeId === "change_tempo") return hasKeys(state, ["request"])
     && boundedText(state.request, 500) && Boolean(state.request.trim());
   if (!hasKeys(state, ["request", "kit_id", "recent_history"], ["recording"])) return false;
   if (Object.hasOwn(state, "recording") && !validRecordingContext(state.recording)) return false;

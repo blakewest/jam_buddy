@@ -12,6 +12,8 @@ const sampleIndex = (velocity: number, count: number) => Math.min(count - 1, Mat
 export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: { onError?: (message: string) => void; onSwap?: (pattern: PlaybackPattern) => void } = {}) {
   let context: AudioContext;
   let output: GainNode;
+  let eq: BiquadFilterNode;
+  let compressor: DynamicsCompressorNode;
   let timer: number | null;
   let manifest: { families: Record<string, string[]> };
   let manifestRequest: Promise<typeof manifest> | null;
@@ -77,7 +79,24 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     context = new Context();
     output = context.createGain();
     output.gain.value = 0.8;
-    output.connect(context.destination);
+    eq = context.createBiquadFilter();
+    eq.type = "highshelf";
+    eq.frequency.value = 6000;
+    compressor = context.createDynamicsCompressor();
+    output.connect(eq);
+    eq.connect(compressor);
+    compressor.connect(context.destination);
+    applyEffects(activePattern);
+  }
+
+  function applyEffects(pattern: PlaybackPattern) {
+    const glue = pattern.effects?.compression === true;
+    const polish = pattern.effects?.polish === true;
+    eq.gain.value = polish ? 1.5 : 0;
+    compressor.threshold.value = glue ? -22 : polish ? -16 : 0;
+    compressor.ratio.value = glue ? 3 : polish ? 2 : 1;
+    compressor.attack.value = glue ? 0.02 : 0.01;
+    compressor.release.value = glue ? 0.18 : 0.22;
   }
 
   async function load(pattern = activePattern) {
@@ -124,6 +143,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     if (audibleSwap && context.currentTime >= audibleSwap.time) {
       const accepted = audibleSwap.pattern;
       audibleSwap = null;
+      applyEffects(accepted);
       onSwap(clone(accepted));
     }
     const horizon = context.currentTime + LOOKAHEAD_SECONDS;
@@ -154,6 +174,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
       await context.resume();
       if (version !== startVersion) return false;
       activePattern = clone(pattern);
+      applyEffects(activePattern);
       activeBpm = update.bpm;
       pendingPattern = null;
       pendingBpm = null;

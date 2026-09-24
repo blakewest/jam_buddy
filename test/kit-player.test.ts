@@ -12,6 +12,8 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
   const hits: { time: number; url: string; gain: number }[] = [];
   const stops: { time?: number; url: string }[] = [];
   const fetched: string[] = [];
+  const compressors: { threshold: { value: number }; ratio: { value: number }; attack: { value: number }; release: { value: number } }[] = [];
+  const filters: { type: string; frequency: { value: number }; gain: { value: number } }[] = [];
   let tick: () => void;
   let context: AudioContext;
   class AudioContext {
@@ -19,6 +21,8 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
     destination = {};
     constructor() { context = this; }
     createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} }; }
+    createDynamicsCompressor() { const node = { threshold: { value: 0 }, ratio: { value: 1 }, attack: { value: 0 }, release: { value: 0 }, connect() {} }; compressors.push(node); return node; }
+    createBiquadFilter() { const node = { type: "", frequency: { value: 0 }, gain: { value: 0 }, connect() {} }; filters.push(node); return node; }
     createBufferSource() { return { buffer: { url: "" }, output: { gain: { value: 1 } }, connect(gain: { gain: { value: number } }) { this.output = gain; }, start(time: number) { hits.push({ time, url: this.buffer.url, gain: this.output.gain.value }); }, stop(time?: number) { stops.push({ time, url: this.buffer?.url }); } }; }
     async decodeAudioData(url: string) { return { url }; }
     async resume() {}
@@ -33,8 +37,35 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
     return { ok: true, arrayBuffer: async () => path } as unknown as Response;
   };
   t.after(() => { globalThis.window = originalWindow; globalThis.fetch = originalFetch; });
-  return { hits, stops, fetched, tick: (time: number) => { context.currentTime = time; tick(); } };
+  return { hits, stops, fetched, compressors, filters, tick: (time: number) => { context.currentTime = time; tick(); } };
 }
+
+test("effect settings follow the audible pattern and do not stack on repeat", async t => {
+  const h = harness(t);
+  const player = createPatternPlayer();
+  const dry = pattern("acoustic");
+  await player.start(dry);
+  assert.equal(h.compressors.length, 1);
+  assert.equal(h.compressors[0].ratio.value, 1);
+  const compressed = { ...dry, effects: { compression: true, polish: false } };
+  await player.stage(compressed);
+  h.tick(1.97);
+  assert.equal(h.compressors[0].ratio.value, 1);
+  h.tick(2.06);
+  assert.ok(h.compressors[0].ratio.value > 1);
+  assert.equal(h.filters[0].gain.value, 0);
+  await player.stage({ ...compressed, effects: { compression: true, polish: true } });
+  h.tick(3.97);
+  h.tick(4.06);
+  assert.ok(h.filters[0].gain.value > 0);
+  assert.equal(h.compressors.length, 1);
+  await player.stage(dry);
+  h.tick(5.97);
+  h.tick(6.06);
+  assert.equal(h.compressors[0].ratio.value, 1);
+  assert.equal(h.filters[0].gain.value, 0);
+  player.stop();
+});
 
 test("one scheduling window keeps old-kit hits before and new-kit hits after the boundary", async t => {
   const h = harness(t);

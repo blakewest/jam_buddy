@@ -25,6 +25,8 @@ function fakeAudio() {
       currentTime = 0;
       destination = {};
       createGain() { return { gain: { value: 0 }, connect() {}, disconnect() {} }; }
+      createBiquadFilter() { return { type: "", frequency: { value: 0 }, gain: { value: 0 }, connect() {} }; }
+      createDynamicsCompressor() { return { threshold: { value: 0 }, ratio: { value: 1 }, attack: { value: 0 }, release: { value: 0 }, connect() {} }; }
       createBufferSource() { return { connect() {}, start(time: number) { starts.push(time); }, stop() {} }; }
       decodeAudioData() { return Promise.resolve({}); }
       resume() { return Promise.resolve(); }

@@ -5,14 +5,15 @@ import type { RhythmIntent } from "./rhythm-fill.js";
 import { applyVelocityEdit } from "./velocity-edit.js";
 import type { VelocityIntent } from "./velocity-edit.js";
 import type { PatternState, PresetAttributes, PatternChange, HistoryEntry } from "./state.js";
-import type { RootRoute } from "./request-tree.js";
+import type { RootRoute, TempoAction } from "./request-tree.js";
+import { applyPatternEffect, applyTempoChange } from "./request-tree.js";
 import type { PatternRunResult, PatternPlan, PatternPass } from "./runner.js";
 import type { Decision } from "../../ai/question-types.js";
 export type SearchResult = Decision & { attributes?: PresetAttributes; candidate_ids: string[]; has_explicit_filters?: boolean; alternatives?: unknown };
 export type TreeResult = { state: PatternState; route: RootRoute; visits: { node: string; response: unknown }[]; result: { applied_changes: PatternChange[]; message?: string | null; tempo_bpm?: number; preset_id?: string; preset_name?: string; alternatives?: unknown; rejected_changes?: PatternChange[]; ignored_changes?: PatternChange[]; history_entry?: HistoryEntry }; model: string | null; usage: Record<string, number>; question_count: number; latency_ms: number; plan?: PatternPlan | null; passes?: PatternPass[] };
-type TreeOptions = { state: PatternState; request: string; route: (request: string) => Promise<Decision & { route: RootRoute }>; searchPresets: (request: string) => Promise<SearchResult>; selectPreset: (request: string, ids: string[]) => Promise<Decision & { preset_id: string }>; runEdit: () => Promise<PatternRunResult>; interpretRhythm?: () => Promise<Decision & { intent: RhythmIntent | null }>; interpretEdit?: () => Promise<Decision & { intent: VelocityIntent | null }>; random?: () => number };
+type TreeOptions = { state: PatternState; request: string; route: (request: string) => Promise<Decision & { route: RootRoute }>; searchPresets: (request: string) => Promise<SearchResult>; selectPreset: (request: string, ids: string[]) => Promise<Decision & { preset_id: string }>; runEdit: () => Promise<PatternRunResult>; interpretRhythm?: () => Promise<Decision & { intent: RhythmIntent | null }>; interpretEdit?: () => Promise<Decision & { intent: VelocityIntent | null }>; interpretTempo?: () => Promise<Decision & { action: TempoAction }>; random?: () => number };
 
-export async function runPatternTree({ state, request, route, searchPresets, selectPreset, runEdit, interpretEdit, interpretRhythm, random = Math.random }: TreeOptions): Promise<TreeResult> {
+export async function runPatternTree({ state, request, route, searchPresets, selectPreset, runEdit, interpretEdit, interpretRhythm, interpretTempo, random = Math.random }: TreeOptions): Promise<TreeResult> {
   const visits: TreeResult["visits"] = [];
   const usage: Record<string, number> = {};
   let latencyMs = 0;
@@ -30,6 +31,21 @@ export async function runPatternTree({ state, request, route, searchPresets, sel
   const routed = await route(request);
   record("root", routed);
   if (routed.route.category === "unsupported") return { state, route: routed.route, visits, result: { message: routed.route.message, applied_changes: [] }, model, usage, question_count: questionCount, latency_ms: latencyMs };
+
+  if (routed.route.category === "add_compression" || routed.route.category === "polish_mix") {
+    const effect = routed.route.category === "add_compression" ? "compression" : "polish";
+    const applied = applyPatternEffect(state, request, effect);
+    record(routed.route.category, applied.result);
+    return { ...applied, route: routed.route, visits, model, usage, question_count: questionCount, latency_ms: latencyMs };
+  }
+
+  if (routed.route.category === "change_tempo") {
+    if (!interpretTempo) throw new Error("Tempo tool is unavailable.");
+    const interpreted = await interpretTempo();
+    record("change_tempo", interpreted);
+    const applied = applyTempoChange(state, request, interpreted.action);
+    return { ...applied, route: routed.route, visits, model, usage, question_count: questionCount, latency_ms: latencyMs };
+  }
 
   if (routed.route.category === "clear_pattern") {
     const clean = createPatternState(state);

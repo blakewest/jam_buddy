@@ -1,12 +1,13 @@
 import { describeTick, editPositions, tickForPosition, ticksPerBar, TICKS_PER_QUARTER, validMeter, velocityForLayer } from "./musical-time.js";
 import { defaultPitch, pitchForNote, validPitchForInstrument } from "./drum-pitches.js";
-import { normalizedSwing } from "./swing.js";
+import { normalizedSwing, swungTick } from "./swing.js";
 import { KITS } from "./kits.js";
 import type { Meter } from "./musical-time.js";
 
 export type Instrument = "kick" | "snare" | "closed_hat" | "open_hat" | "ride" | "crash" | "high_tom" | "mid_tom" | "floor_tom";
 export type PatternNote = { id: string; instrument: Instrument; bar: number; tick: number; velocity: number; midi_pitch?: number };
-export type Pattern = { bars: number; meter: Meter; ticks_per_quarter: number; notes: PatternNote[]; kit_id: string; swing_percent?: number };
+export type PatternEffects = { compression: boolean; polish: boolean };
+export type Pattern = { bars: number; meter: Meter; ticks_per_quarter: number; notes: PatternNote[]; kit_id: string; swing_percent?: number; effects?: PatternEffects };
 export type HistoryEntry = { request: string; applied_changes: string[]; rejected_changes: string[] };
 export type PresetAttributes = { genres?: string[]; feels?: string[]; meter?: string };
 export type PresetContext = { preset_id: string; attributes: PresetAttributes };
@@ -18,7 +19,7 @@ export type JevNoulAnswer = { type: "noul"; noul: number };
 export type JevAnswers = Record<string, JevChoiceAnswer | JevNoulAnswer | undefined>;
 type ProposedNote = Omit<PatternNote, "id"> & { id?: string };
 export type Candidate = { kind: "add" | "remove" | "modify"; source: string; score: number; order: number; note_id?: string; proposed?: ProposedNote };
-export type PatternChange = { kind: string; source?: string; score?: number; note_id?: string; proposed?: ProposedNote; before?: PatternNote; after?: PatternNote; reason?: string; pass?: number; before_bars?: number; after_bars?: number; removed_notes?: number; before_swing?: number; after_swing?: number; before_bpm?: number; after_bpm?: number; before_kit?: string; after_kit?: string; request?: string; preset_id?: string; preset_name?: string };
+export type PatternChange = { kind: string; source?: string; score?: number; note_id?: string; proposed?: ProposedNote; before?: PatternNote; after?: PatternNote; reason?: string; pass?: number; before_bars?: number; after_bars?: number; removed_notes?: number; before_swing?: number; after_swing?: number; before_bpm?: number; after_bpm?: number; before_kit?: string; after_kit?: string; request?: string; preset_id?: string; preset_name?: string; effect?: keyof PatternEffects };
 export type ApplyPatternResult = { reset_probability: number; candidates: Candidate[]; applied_changes: PatternChange[]; rejected_changes: PatternChange[]; ignored_changes: PatternChange[]; history_entry: HistoryEntry };
 export type PatternJevState = { recent_take?: RecentTake; request: string; pattern: { bars: number; meter: Meter; ticks_per_quarter: number; parts: Record<Instrument, { id: string; bar: number; tick: number; position: string; velocity: number }[]> }; music_reference: typeof MUSIC_REFERENCE; recent_history: HistoryEntry[] };
 type SavedNote = Partial<PatternNote> & { slot?: number; velocity_layer?: number };
@@ -31,6 +32,7 @@ export const DEFAULT_METER = Object.freeze({ numerator: 4, denominator: 4 });
 export const MAX_BARS = 8;
 export const MAX_HISTORY = 8;
 export const MAX_OPERATIONS = 4;
+const MICRO_NUDGE_MS = 10;
 export const POSITIONS = Object.freeze(editPositions(DEFAULT_METER).map(item => item.id));
 export const MUSIC_REFERENCE = Object.freeze({
   all_eighths: ["beat_1", "beat_1_and", "beat_2", "beat_2_and", "beat_3", "beat_3_and", "beat_4", "beat_4_and"],
@@ -66,7 +68,7 @@ export function createPatternState(input: unknown = {}): PatternState {
     && (note.midi_pitch === undefined || validPitchForInstrument(note.midi_pitch, note.instrument))) : [];
   const tempoBpm = saved.tempo_bpm ?? pattern.tempo_bpm;
   return {
-    pattern: { bars, meter, swing_percent: normalizedSwing(pattern.swing_percent), ticks_per_quarter: TICKS_PER_QUARTER, notes, kit_id: KITS.some(kit => kit.id === pattern.kit_id) ? pattern.kit_id! : "acoustic" },
+    pattern: { bars, meter, swing_percent: normalizedSwing(pattern.swing_percent), ticks_per_quarter: TICKS_PER_QUARTER, notes, kit_id: KITS.some(kit => kit.id === pattern.kit_id) ? pattern.kit_id! : "acoustic", ...(pattern.effects?.compression === true || pattern.effects?.polish === true ? { effects: { compression: pattern.effects.compression === true, polish: pattern.effects.polish === true } } : {}) },
     tempo_bpm: typeof tempoBpm === "number" && Number.isFinite(tempoBpm) && tempoBpm >= 30 && tempoBpm <= 360 ? tempoBpm : 120,
     undo_history: Array.isArray(saved.undo_history) ? saved.undo_history.slice(-MAX_UNDO_HISTORY)
       .filter(unit => unit && typeof unit.request === "string" && unit.pattern && Array.isArray(unit.pattern.notes)
@@ -155,13 +157,31 @@ function shiftedTiming(item: PatternNote, delta: number, bars: number, meter: Me
   return { bar: Math.floor(shifted / barTicks) + 1, tick: shifted % barTicks };
 }
 
-function noteCandidate(answers: JevAnswers, item: PatternNote, order: number, bars: number, meter: Meter): Candidate | null {
+function microTiming(item: PatternNote, direction: number, bpm: number, swing: number, bars: number, meter: Meter) {
+  const barTicks = ticksPerBar(meter);
+  const totalTicks = bars * barTicks;
+  const current = (item.bar - 1) * barTicks + item.tick;
+  const delta = direction * bpm * TICKS_PER_QUARTER * MICRO_NUDGE_MS / 60_000;
+  const target = ((swungTick(current, swing) + delta) % totalTicks + totalTicks) % totalTicks;
+  const quarterStart = Math.floor(target / TICKS_PER_QUARTER) * TICKS_PER_QUARTER;
+  const within = target - quarterStart;
+  const ratio = swing / 100;
+  const rawWithin = within <= TICKS_PER_QUARTER * ratio
+    ? within / (2 * ratio)
+    : TICKS_PER_QUARTER / 2 + (within - TICKS_PER_QUARTER * ratio) / (2 * (1 - ratio));
+  return shiftedTiming(item, Math.round(quarterStart + rawWithin) - current, bars, meter);
+}
+
+function noteCandidate(answers: JevAnswers, item: PatternNote, order: number, bars: number, meter: Meter, bpm: number, swing: number): Candidate | null {
   const operation = answers[`${item.id}_operation`];
   if (!operation || operation.type !== "choice" || operation.choice === "no_op" || !["remove", "modify"].includes(operation.choice)) return null;
   const candidate: Candidate = { kind: operation.choice as "remove" | "modify", source: item.id, note_id: item.id, score: alterationConfidence(operation), order };
   if (operation.choice === "modify") {
     const requestedInstrument = choice(answers, `${item.id}_instrument`, "keep_current");
-    const timing = shiftedTiming(item, timingDelta(choice(answers, `${item.id}_timing`, "no_change")), bars, meter);
+    const timingChoice = choice(answers, `${item.id}_timing`, "no_change");
+    const timing = timingChoice === "earlier_10ms" || timingChoice === "later_10ms"
+      ? microTiming(item, timingChoice === "earlier_10ms" ? -1 : 1, bpm, swing, bars, meter)
+      : shiftedTiming(item, timingDelta(timingChoice), bars, meter);
     candidate.proposed = {
       id: item.id,
       instrument: requestedInstrument === "keep_current" ? item.instrument : requestedInstrument as Instrument,
@@ -207,7 +227,7 @@ export function applyPatternAnswers(inputState: PatternState, answers: JevAnswer
     if (candidate) candidates.push(candidate);
   }
   state.pattern.notes.forEach((item, index) => {
-    const candidate = noteCandidate(answers, item, index + INSTRUMENTS.length, state.pattern.bars, state.pattern.meter);
+    const candidate = noteCandidate(answers, item, index + INSTRUMENTS.length, state.pattern.bars, state.pattern.meter, state.tempo_bpm, state.pattern.swing_percent ?? 50);
     if (candidate) candidates.push(candidate);
   });
   candidates.sort((left, right) => right.score - left.score || left.order - right.order);
