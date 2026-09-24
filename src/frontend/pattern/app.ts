@@ -385,7 +385,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
         player.stop();
         $("playback-status").textContent = "Stopped";
       }
-      await commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo" && change.kind !== "swing"), !(recordProcessing && takeMemory?.decision?.mode === "replace") && completed.result.applied_changes.every(change => ["add", "modify", "remove"].includes(change.kind)) ? "beat" : "phrase");
+      await commitOrStage(completed.state, completed.result.applied_changes.some(change => !["kit", "undo", "swing", "tempo"].includes(change.kind)), !(recordProcessing && takeMemory?.decision?.mode === "replace") && completed.result.applied_changes.every(change => ["add", "modify", "remove"].includes(change.kind)) ? "beat" : "phrase");
     }
     else {
       state = completed.state;
@@ -453,7 +453,7 @@ function commandForRequest(request: string, decide: Decide) {
     request,
     grooveRequest: grooveHandler(request, decide),
     decideNode: (nodeId, sentState) => {
-      $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : nodeId === "change_swing" ? "Jev is adjusting swing…" : "Jev is selecting a kit…";
+      $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : nodeId === "change_swing" ? "Jev is adjusting swing…" : nodeId === "change_tempo" ? "Jev is setting tempo…" : "Jev is selecting a kit…";
       return decide("/api/request-decision", { node_id: nodeId, state: sentState });
     },
     editPattern: () => editRequest(request, decide),

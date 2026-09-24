@@ -1,6 +1,6 @@
 import { describeTick, editPositions, tickForPosition, ticksPerBar, TICKS_PER_QUARTER, validMeter, velocityForLayer } from "./musical-time.js";
 import { defaultPitch, pitchForNote, validPitchForInstrument } from "./drum-pitches.js";
-import { normalizedSwing } from "./swing.js";
+import { normalizedSwing, swungTick } from "./swing.js";
 import { KITS } from "./kits.js";
 import type { Meter } from "./musical-time.js";
 
@@ -31,6 +31,7 @@ export const DEFAULT_METER = Object.freeze({ numerator: 4, denominator: 4 });
 export const MAX_BARS = 8;
 export const MAX_HISTORY = 8;
 export const MAX_OPERATIONS = 4;
+const MICRO_NUDGE_MS = 10;
 export const POSITIONS = Object.freeze(editPositions(DEFAULT_METER).map(item => item.id));
 export const MUSIC_REFERENCE = Object.freeze({
   all_eighths: ["beat_1", "beat_1_and", "beat_2", "beat_2_and", "beat_3", "beat_3_and", "beat_4", "beat_4_and"],
@@ -155,13 +156,43 @@ function shiftedTiming(item: PatternNote, delta: number, bars: number, meter: Me
   return { bar: Math.floor(shifted / barTicks) + 1, tick: shifted % barTicks };
 }
 
-function noteCandidate(answers: JevAnswers, item: PatternNote, order: number, bars: number, meter: Meter): Candidate | null {
+function microTiming(item: PatternNote, direction: number, bpm: number, swing: number, bars: number, meter: Meter) {
+  const barTicks = ticksPerBar(meter);
+  const totalTicks = bars * barTicks;
+  const current = (item.bar - 1) * barTicks + item.tick;
+  const delta = direction * bpm * TICKS_PER_QUARTER * MICRO_NUDGE_MS / 60_000;
+  const target = ((swungTick(current, swing) + delta) % totalTicks + totalTicks) % totalTicks;
+  const quarterStart = Math.floor(target / TICKS_PER_QUARTER) * TICKS_PER_QUARTER;
+  const within = target - quarterStart;
+  const ratio = swing / 100;
+  const rawWithin = within <= TICKS_PER_QUARTER * ratio
+    ? within / (2 * ratio)
+    : TICKS_PER_QUARTER / 2 + (within - TICKS_PER_QUARTER * ratio) / (2 * (1 - ratio));
+  return shiftedTiming(item, Math.round(quarterStart + rawWithin) - current, bars, meter);
+}
+
+function microDirection(request: string) {
+  const cue = /\b(?:just\s+)?a\s+(?:hair|touch)\s+(early|earlier|late|later)\b|\bjust\s+slightly\s+(early|earlier|late|later)\b/i.exec(request);
+  if (!cue) return 0;
+  return /^(early|earlier)$/i.test(cue[1] ?? cue[2]) ? -1 : 1;
+}
+
+function noteCandidate(answers: JevAnswers, item: PatternNote, order: number, bars: number, meter: Meter, bpm: number, swing: number, request: string): Candidate | null {
   const operation = answers[`${item.id}_operation`];
   if (!operation || operation.type !== "choice" || operation.choice === "no_op" || !["remove", "modify"].includes(operation.choice)) return null;
   const candidate: Candidate = { kind: operation.choice as "remove" | "modify", source: item.id, note_id: item.id, score: alterationConfidence(operation), order };
   if (operation.choice === "modify") {
     const requestedInstrument = choice(answers, `${item.id}_instrument`, "keep_current");
-    const timing = shiftedTiming(item, timingDelta(choice(answers, `${item.id}_timing`, "no_change")), bars, meter);
+    let timingChoice = choice(answers, `${item.id}_timing`, "no_change");
+    if (timingChoice === "earlier_10ms" || timingChoice === "later_10ms") {
+      const direction = timingChoice === "earlier_10ms" ? -1 : 1;
+      const requestedDirection = microDirection(request);
+      if (!requestedDirection) timingChoice = direction < 0 ? "earlier_sixteenth" : "later_sixteenth";
+      else if (requestedDirection !== direction) timingChoice = "no_change";
+    }
+    const timing = timingChoice === "earlier_10ms" || timingChoice === "later_10ms"
+      ? microTiming(item, timingChoice === "earlier_10ms" ? -1 : 1, bpm, swing, bars, meter)
+      : shiftedTiming(item, timingDelta(timingChoice), bars, meter);
     candidate.proposed = {
       id: item.id,
       instrument: requestedInstrument === "keep_current" ? item.instrument : requestedInstrument as Instrument,
@@ -207,7 +238,7 @@ export function applyPatternAnswers(inputState: PatternState, answers: JevAnswer
     if (candidate) candidates.push(candidate);
   }
   state.pattern.notes.forEach((item, index) => {
-    const candidate = noteCandidate(answers, item, index + INSTRUMENTS.length, state.pattern.bars, state.pattern.meter);
+    const candidate = noteCandidate(answers, item, index + INSTRUMENTS.length, state.pattern.bars, state.pattern.meter, state.tempo_bpm, state.pattern.swing_percent ?? 50, request);
     if (candidate) candidates.push(candidate);
   });
   candidates.sort((left, right) => right.score - left.score || left.order - right.order);

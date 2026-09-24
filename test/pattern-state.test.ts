@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, MAX_BARS, resizePattern, stateForJev } from "../src/core/pattern/state.js";
+import { swungTick } from "../src/core/pattern/swing.js";
 
 const choice = (value: any, probabilities: Record<string, number> = { no_op: 0 }) => ({ type: "choice" as const, choice: value, probabilities, confidence: Math.max(...Object.values(probabilities)) });
 const noul = (value: any) => ({ type: "noul" as const, noul: value });
@@ -127,6 +128,52 @@ test("modification shifts tick timing and clamps MIDI velocity", () => {
     note("note_1", "open_hat", 16, 5, 2),
     note("note_2", "snare", 1, 1),
   ]);
+});
+
+test("micro timing moves selected hits about 10 ms at the current tempo", () => {
+  const state = createPatternState({ tempo_bpm: 120, notes: [
+    note("snare_1", "snare", 5), note("snare_2", "snare", 13), note("kick_1", "kick", 1),
+  ] });
+  const answers = noReset({
+    ...modify("snare_1", 0.9, "later_10ms"),
+    ...modify("snare_2", 0.9, "later_10ms"),
+  });
+  const result = applyPatternAnswers(state, answers, "make those snares just a hair late");
+  assert.deepEqual(result.state.pattern.notes.map(item => item.tick), [979, 2899, 0]);
+  assert.deepEqual(result.state.pattern.notes.map(item => item.velocity), state.pattern.notes.map(item => item.velocity));
+  assert.equal(result.result.applied_changes.length, 2);
+  const repeated = applyPatternAnswers(result.state, answers, "a touch later again");
+  assert.deepEqual(repeated.state.pattern.notes.map(item => item.tick), [998, 2918, 0]);
+});
+
+test("micro timing uses stored BPM and wraps across the phrase edge", () => {
+  const state = createPatternState({ tempo_bpm: 60, notes: [{ id: "snare_1", instrument: "snare", bar: 1, tick: 0, velocity: 80 }] });
+  const early = applyPatternAnswers(state, noReset(modify("snare_1", 0.9, "earlier_10ms")), "a touch early");
+  assert.equal(early.state.pattern.notes[0].tick, 3830);
+  assert.equal(early.state.pattern.notes[0].velocity, 80);
+  assert.equal(applyPatternAnswers(state, noReset(modify("snare_1", 0.9, "later_sixteenth")), "a little later").state.pattern.notes[0].tick, 240);
+});
+
+test("ordinary earlier language cannot trigger a micro nudge from a Jev choice", () => {
+  const state = createPatternState({ tempo_bpm: 120, notes: [note("snare_1", "snare", 5)] });
+  const answer = noReset(modify("snare_1", 0.9, "earlier_10ms"));
+  const result = applyPatternAnswers(state, answer, "move that snare a little earlier");
+  assert.equal(result.state.pattern.notes[0].tick, 720);
+});
+
+test("micro timing stays near 10 ms in the audible swung timeline", () => {
+  const state = createPatternState({ tempo_bpm: 120, swing_percent: 85, notes: [
+    { id: "snare_1", instrument: "snare", bar: 1, tick: 960, velocity: 80 },
+    { id: "snare_2", instrument: "snare", bar: 1, tick: 1440, velocity: 80 },
+  ] });
+  const result = applyPatternAnswers(state, noReset({
+    ...modify("snare_1", 0.9, "later_10ms"), ...modify("snare_2", 0.9, "later_10ms"),
+  }), "just a hair late");
+  for (const [index, before] of state.pattern.notes.entries()) {
+    const after = result.state.pattern.notes[index];
+    const elapsedMs = (swungTick(after.tick, 85) - swungTick(before.tick, 85)) * 60_000 / (120 * 960);
+    assert.ok(Math.abs(elapsedMs - 10) < 1, `${before.tick} shifted ${elapsedMs} ms`);
+  }
 });
 
 test("a modification cannot collide with an occupied cell", () => {

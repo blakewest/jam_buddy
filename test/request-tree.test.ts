@@ -63,7 +63,7 @@ test("unsupported root branch returns guidance without invoking an editor or ano
   const visited: string[] = [];
   const completed = await runPatternCommand({
     initialState,
-    request: "Add compression",
+    request: "Add distortion",
     decideNode: async node => {
       visited.push(node);
       return decision("unsupported");

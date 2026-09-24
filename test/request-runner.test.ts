@@ -16,6 +16,14 @@ test("clearing a loaded groove bypasses every edit and preset API", async () => 
   assert.deepEqual(result.result.applied_changes, [{ kind: "reset" }]);
 });
 
+test("tempo route uses its child decision without entering the note editor", async () => {
+  const initial = createPatternState({ tempo_bpm: 120 });
+  const forbidden = async () => { throw new Error("Unexpected API call"); };
+  const result = await runPatternTree({ state: initial, request: "slow this whole thing down", route: async () => ({ route: { category: "change_tempo" } }), interpretTempo: async () => ({ action: "decrease" }), runEdit: forbidden, searchPresets: forbidden, selectPreset: forbidden } as unknown as Parameters<typeof runPatternTree>[0]);
+  assert.equal(result.state.tempo_bpm, 110);
+  assert.deepEqual(result.visits.map(visit => visit.node), ["root", "change_tempo"]);
+});
+
 test("shuffle remembers filters after reload and never selects the current groove", async () => {
   const loaded = await runPatternTree({ state: createPatternState(), request: "funk beat", route: async () => ({ route: { category: "load_preset" } }), searchPresets: async () => ({ attributes: { genres: ["funk"], meter: "unspecified", feels: [] }, candidate_ids: ["funk_pocket"] }), selectPreset: async () => ({ preset_id: "funk_pocket" }) });
   const restored = createPatternState(JSON.parse(JSON.stringify(loaded.state)));
