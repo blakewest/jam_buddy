@@ -9,7 +9,7 @@ const POLL_MS = 25;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const sampleIndex = (velocity: number, count: number) => Math.min(count - 1, Math.floor((velocity - 1) * count / 127));
 
-export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: { onError?: (message: string) => void; onSwap?: (pattern: PlaybackPattern) => void } = {}) {
+export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onHit }: { onError?: (message: string) => void; onSwap?: (pattern: PlaybackPattern) => void; onHit?: (instrument: string) => void } = {}) {
   let context: AudioContext;
   let output: GainNode;
   let timer: number | null;
@@ -30,6 +30,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
   const buffers = new Map<string, AudioBuffer>();
   const sources = new Set<AudioBufferSourceNode>();
   const openHatSources = new Set<AudioBufferSourceNode>();
+  const visualTimers = new Set<number>();
 
   async function kitManifest() {
     if (manifest) return manifest;
@@ -117,6 +118,14 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
       openHatSources.delete(source);
     };
     source.start(Math.max(context.currentTime, hit.time));
+    if (onHit) {
+      const visualDelayMs = Math.max(0, (hit.time - context.currentTime + (context.outputLatency ?? 0)) * 1000);
+      const visualTimer = window.setTimeout(() => {
+        visualTimers.delete(visualTimer);
+        if (playing) onHit(hit.instrument);
+      }, visualDelayMs);
+      visualTimers.add(visualTimer);
+    }
   }
 
   function tick() {
@@ -183,6 +192,8 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     playing = false;
     if (timer) window.clearInterval(timer);
     timer = null;
+    for (const visualTimer of visualTimers) window.clearTimeout(visualTimer);
+    visualTimers.clear();
     for (const source of sources) {
       try { source.stop(); } catch {}
     }

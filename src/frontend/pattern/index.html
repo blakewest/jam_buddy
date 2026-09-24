@@ -10,48 +10,46 @@
 <body>
   <main>
     <header>
-      <div><div class="eyebrow">JAM PARTNER / EXPERIMENT 02</div><h1>Build a beat with Jev.</h1><p>Describe the next change. Jev estimates how many note edits it needs, then applies them one at a time.</p></div>
-      <div class="header-links"><span class="local"><i></i> Local session</span><a href="/">Timing lab →</a></div>
+      <span class="wordmark">JAM PARTNER</span>
+      <nav class="header-links" aria-label="Site"><a href="#about">About</a><a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav>
     </header>
-    <section class="transport panel" aria-label="Pattern playback">
+    <div class="workspace">
+    <section class="pattern" aria-labelledby="pattern-heading">
+      <div class="section-heading"><h1 id="pattern-heading">Make a beat with Jev.</h1><span id="note-count" class="count">0 notes</span></div>
+      <section class="transport" aria-label="Pattern playback">
       <div class="transport-buttons"><button id="play" class="primary">▶ Play loop</button><button id="stop" disabled>■ Stop</button></div>
       <div class="transport-meta"><label>Tempo <input id="tempo" type="number" min="40" max="240" step="1" value="120"> BPM</label><span id="phrase-bars">1 bar</span><span id="phrase-steps">4/4</span><span id="swing-status" role="status">Swing off</span></div>
       <label>Kit <select id="kit"></select></label><span id="kit-status" role="status">Acoustic</span>
       <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8"></label>
       <span id="playback-status" class="status" role="status">Stopped</span>
-    </section>
-    <section class="pattern panel" aria-labelledby="pattern-heading">
-      <div class="section-heading"><div><span class="eyebrow">CURRENT LOOP</span><h2 id="pattern-heading">One-bar pattern</h2></div><span id="note-count" class="count">0 notes</span></div>
+      </section>
       <div class="grid-scroll"><div id="pattern-grid" class="pattern-bars" aria-label="Drum pattern"></div></div>
-      <div class="grid-legend"><span><i class="layer layer-1"></i>Soft</span><span><i class="layer layer-3"></i>Medium</span><span><i class="layer layer-5"></i>Strong</span></div>
+      <div class="pattern-footer"><div class="beat-actions" aria-label="Beat actions"><button id="undo" type="button">Undo</button><button id="clear" type="button">Clear beat</button></div><div class="grid-legend">Soft <i class="legend-dot soft"></i><i class="legend-dot strong"></i> Strong</div></div>
     </section>
-    <section class="prompt panel" aria-labelledby="prompt-heading">
-      <div class="section-heading"><div><span class="eyebrow">YOUR DIRECTION</span><h2 id="prompt-heading">What should the drums do next?</h2></div><span id="pending" class="pending" hidden>Applies next phrase</span></div>
+    <section class="jev-panel" aria-label="Jev playing the drums">
+      <div id="jev" class="jev-kit" role="img" aria-label="Jev at a drum kit with hi-hat, crash, snare, tom, and kick drum">
+        <span class="antenna"></span><span class="head"></span><span class="face"></span><span class="torso"></span>
+        <span class="arm-left"></span><span class="arm-right"></span><span class="stick-left"></span><span class="stick-right"></span>
+        <span class="hat-stand"></span><span class="hat-bottom"></span><span class="hat-top"></span>
+        <span class="crash-stand"></span><span class="crash"></span><span class="snare"></span><span class="tom"></span><span class="kick"></span>
+      </div>
+      <span id="jev-caption" class="jev-caption">JEV IS READY</span>
+    </section>
+    </div>
+    <section class="prompt" aria-labelledby="prompt-heading">
+      <div class="section-heading"><h2 id="prompt-heading" class="sr-only">Ask Jev</h2><span id="pending" class="pending" hidden>Applies next phrase</span></div>
       <form id="request-form">
-        <label for="request">Request</label>
-        <div class="prompt-row"><textarea id="request" maxlength="500" rows="2" placeholder="Try: Give me a simple backbeat" required></textarea><button id="record" type="button" aria-pressed="false">Hold to record</button><button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Ask Jev (⌘ Enter)">Ask Jev</button></div>
+        <label for="request" class="sr-only">Request</label>
+        <div class="prompt-row"><textarea id="request" maxlength="500" rows="1" placeholder="Describe your next beat…" required></textarea><div class="prompt-actions"><button id="record" type="button" aria-pressed="false">Hold to speak</button><button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Ask Jev (⌘ Enter)">Ask Jev</button></div></div>
       </form>
-      <div class="recording-tools">
-        <span id="record-status" role="status">Use wired headphones. Hold, speak or beatbox, then release. Maximum 30 seconds.</span>
-        <button id="record-cancel" type="button" hidden>Cancel recording</button>
-        <label>Input timing correction (ms) <input id="input-offset" type="number" min="-500" max="500" step="5" value="0"></label>
-        <small>Positive correction moves captured hits earlier. Escape cancels.</small>
-      </div>
-      <div id="take-controls" class="recording-tools" hidden>
-        <label>Demonstration start (seconds) <input id="take-start" type="number" min="0" max="30" step="0.01" value="0"></label>
-        <label>Take tempo (BPM) <input id="take-tempo" type="number" min="30" max="360" step="0.5" value="120"></label>
-        <button id="take-half" type="button">Half tempo</button><button id="take-double" type="button">Double tempo</button>
-        <label>Bar-start rotation (sixteenths) <input id="take-rotation" type="number" min="-63" max="63" step="1" value="0"></label>
-        <button id="take-apply" type="button">Apply adjustment</button><button id="take-retry" type="button">Retry take</button><button id="take-export" type="button">Export diagnostic WAV + JSON</button>
-        <details><summary>Latest take: transcript, detected hits, and decisions</summary><pre id="take-diagnostic">No retained take.</pre></details>
-      </div>
-      <label class="auto-submit"><input id="auto-submit" type="checkbox" checked> Auto-submit after 0.3 seconds without new text</label>
-        <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a little swing</button><button type="button">Swing it harder</button><button type="button">Make the snare louder</button></div>
-      <div class="request-status"><span id="request-status" role="status">Ready for your first request. Press ⌘ Enter to send.</span><span id="request-meta">No API call yet</span></div>
+      <button id="record-cancel" class="record-cancel" type="button" hidden>Cancel recording</button>
+      <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a little swing</button><button type="button">Swing it harder</button><button type="button">Make the snare louder</button></div>
+      <div class="request-status"><span id="request-status" role="status">Ready when you are.</span></div>
     </section>
-    <div class="columns">
+    <div class="session-footer">
+    <details class="session-details"><summary>Session details</summary><div class="columns">
       <section class="history panel" aria-labelledby="history-heading">
-        <div class="section-heading"><div><span class="eyebrow">SESSION</span><h2 id="history-heading">Change history</h2></div><div class="small-actions"><button id="undo" type="button">Undo</button><button id="clear" type="button">Clear pattern</button><button id="new-session" type="button">New session</button></div></div>
+        <div class="section-heading"><div><span class="eyebrow">SESSION</span><h2 id="history-heading">Change history</h2></div></div>
         <div id="history-list" class="history-list"><p class="empty">Your first change will appear here.</p></div>
       </section>
       <section class="inspector panel" aria-labelledby="inspector-heading">
@@ -59,8 +57,11 @@
         <div id="decision-summary" class="decision-summary"><p class="empty">Raw Jev answers and local application rules will appear here.</p></div>
         <details><summary>Raw state, answers, and application result</summary><pre id="raw">No response yet.</pre></details>
       </section>
+    </div></details>
+    <button id="new-session" type="button">New session</button>
     </div>
-    <footer>Patterns and response history stay in this browser. The TypeSafe API key stays on the local server.</footer>
+    <span id="request-meta" class="sr-only">No API call yet</span>
+    <footer id="about">Jam Partner is a local drum loop demo. Patterns and response history stay in this browser. <a href="/">Timing lab →</a></footer>
   </main>
 </body>
 </html>
