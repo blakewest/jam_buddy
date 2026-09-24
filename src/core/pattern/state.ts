@@ -10,18 +10,19 @@ export type Pattern = { bars: number; meter: Meter; ticks_per_quarter: number; n
 export type HistoryEntry = { request: string; applied_changes: string[]; rejected_changes: string[] };
 export type PresetAttributes = { genres?: string[]; feels?: string[]; meter?: string };
 export type PresetContext = { preset_id: string; attributes: PresetAttributes };
-export type UndoUnit = { request: string; pattern: Pattern; tempo_bpm?: number; preset_context?: PresetContext };
-export type PatternState = { pattern: Pattern; recent_history: HistoryEntry[]; undo_history: UndoUnit[]; next_note_id: number; preset_context?: PresetContext | null; tempo_bpm: number };
+export type RecentTake = { id: string; note_ids: string[] };
+export type UndoUnit = { request: string; pattern: Pattern; tempo_bpm?: number; recent_take?: RecentTake; preset_context?: PresetContext };
+export type PatternState = { pattern: Pattern; recent_history: HistoryEntry[]; undo_history: UndoUnit[]; next_note_id: number; recent_take?: RecentTake; preset_context?: PresetContext | null; tempo_bpm: number };
 export type JevChoiceAnswer = { type: "choice"; choice: string; confidence?: number; probabilities?: Record<string, number> };
 export type JevNoulAnswer = { type: "noul"; noul: number };
 export type JevAnswers = Record<string, JevChoiceAnswer | JevNoulAnswer | undefined>;
 type ProposedNote = Omit<PatternNote, "id"> & { id?: string };
 export type Candidate = { kind: "add" | "remove" | "modify"; source: string; score: number; order: number; note_id?: string; proposed?: ProposedNote };
-export type PatternChange = { kind: string; source?: string; score?: number; note_id?: string; proposed?: ProposedNote; before?: PatternNote; after?: PatternNote; reason?: string; pass?: number; before_bars?: number; after_bars?: number; removed_notes?: number; before_swing?: number; after_swing?: number; before_kit?: string; after_kit?: string; request?: string; preset_id?: string; preset_name?: string };
+export type PatternChange = { kind: string; source?: string; score?: number; note_id?: string; proposed?: ProposedNote; before?: PatternNote; after?: PatternNote; reason?: string; pass?: number; before_bars?: number; after_bars?: number; removed_notes?: number; before_swing?: number; after_swing?: number; before_bpm?: number; after_bpm?: number; before_kit?: string; after_kit?: string; request?: string; preset_id?: string; preset_name?: string };
 export type ApplyPatternResult = { reset_probability: number; candidates: Candidate[]; applied_changes: PatternChange[]; rejected_changes: PatternChange[]; ignored_changes: PatternChange[]; history_entry: HistoryEntry };
-export type PatternJevState = { request: string; pattern: { bars: number; meter: Meter; ticks_per_quarter: number; parts: Record<Instrument, { id: string; bar: number; tick: number; position: string; velocity: number }[]> }; music_reference: typeof MUSIC_REFERENCE; recent_history: HistoryEntry[] };
+export type PatternJevState = { recent_take?: RecentTake; request: string; pattern: { bars: number; meter: Meter; ticks_per_quarter: number; parts: Record<Instrument, { id: string; bar: number; tick: number; position: string; velocity: number }[]> }; music_reference: typeof MUSIC_REFERENCE; recent_history: HistoryEntry[] };
 type SavedNote = Partial<PatternNote> & { slot?: number; velocity_layer?: number };
-type SavedPattern = Partial<Omit<Pattern, "notes">> & { notes?: SavedNote[] };
+type SavedPattern = Partial<Omit<Pattern, "notes">> & { tempo_bpm?: number; notes?: SavedNote[] };
 type SavedState = Partial<Omit<PatternState, "pattern">> & SavedPattern & { pattern?: SavedPattern };
 export const MAX_UNDO_HISTORY = 20;
 
@@ -63,14 +64,21 @@ export function createPatternState(input: unknown = {}): PatternState {
     && Number.isInteger(note.tick) && note.tick >= 0 && note.tick < ticksPerBar(meter)
     && Number.isInteger(note.velocity) && note.velocity >= 1 && note.velocity <= 127
     && (note.midi_pitch === undefined || validPitchForInstrument(note.midi_pitch, note.instrument))) : [];
+  const tempoBpm = saved.tempo_bpm ?? pattern.tempo_bpm;
   return {
     pattern: { bars, meter, swing_percent: normalizedSwing(pattern.swing_percent), ticks_per_quarter: TICKS_PER_QUARTER, notes, kit_id: KITS.some(kit => kit.id === pattern.kit_id) ? pattern.kit_id! : "acoustic" },
-    tempo_bpm: Number.isInteger(saved.tempo_bpm) && saved.tempo_bpm! >= 40 && saved.tempo_bpm! <= 240 ? saved.tempo_bpm! : 120,
+    tempo_bpm: typeof tempoBpm === "number" && Number.isFinite(tempoBpm) && tempoBpm >= 30 && tempoBpm <= 360 ? tempoBpm : 120,
     undo_history: Array.isArray(saved.undo_history) ? saved.undo_history.slice(-MAX_UNDO_HISTORY)
-      .filter(unit => unit && typeof unit.request === "string" && unit.pattern && Array.isArray(unit.pattern.notes))
-      .map(unit => ({ ...clone(unit), request: unit.request.slice(0, 500), pattern: createPatternState({ pattern: unit.pattern }).pattern })) : [],
+      .filter(unit => unit && typeof unit.request === "string" && unit.pattern && Array.isArray(unit.pattern.notes)
+        && unit.pattern.notes.every(note => note && typeof note.id === "string"))
+      .map(unit => {
+        const restored = createPatternState({ pattern: unit.pattern, tempo_bpm: unit.tempo_bpm ?? (unit.pattern as SavedPattern).tempo_bpm ?? tempoBpm, recent_take: unit.recent_take });
+        return { ...clone(unit), request: unit.request.slice(0, 500), pattern: restored.pattern, tempo_bpm: restored.tempo_bpm,
+          ...(unit.recent_take ? { recent_take: restored.recent_take } : {}) };
+      }) : [],
     recent_history: Array.isArray(saved.recent_history) ? saved.recent_history.slice(-MAX_HISTORY).map(boundedHistory) : [],
     next_note_id: Math.max(Number(saved.next_note_id) || 1, nextIdFor(notes)),
+    ...(saved.recent_take && typeof saved.recent_take.id === "string" && Array.isArray(saved.recent_take.note_ids) ? { recent_take: { id: saved.recent_take.id.slice(0, 100), note_ids: saved.recent_take.note_ids.filter(id => notes.some(note => note.id === id)).slice(0, 256) } } : {}),
     ...(saved.preset_context !== undefined ? { preset_context: clone(saved.preset_context) } : {}),
   };
 }
@@ -259,6 +267,7 @@ export function stateForJev(state: PatternState, request: string): PatternJevSta
     .map(note => ({ id: note.id, bar: note.bar, tick: note.tick, position: positionForTick(note.tick, state.pattern.meter), velocity: note.velocity }))]));
   return {
     request,
+    ...(state.recent_take ? { recent_take: clone(state.recent_take) } : {}),
     pattern: { bars: state.pattern.bars, meter: clone(state.pattern.meter), ticks_per_quarter: TICKS_PER_QUARTER, parts: parts as PatternJevState["pattern"]["parts"] },
     music_reference: clone(MUSIC_REFERENCE),
     recent_history: clone(state.recent_history).slice(-MAX_HISTORY),

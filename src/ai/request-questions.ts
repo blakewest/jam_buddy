@@ -2,8 +2,10 @@ import { SWING_CHOICES } from "../core/pattern/swing.js";
 import { KITS } from "../core/pattern/kits.js";
 import { QUESTION_CHOICES, REQUEST_TREE, nodeOutcome } from "../core/pattern/request-tree.js";
 import type { HistoryEntry } from "../core/pattern/state.js";
+import type { RecordingContext } from "../core/pattern/request-tree.js";
 
 export type RequestState = {
+  recording?: RecordingContext;
   request: string;
   kit_id: string;
   recent_history: HistoryEntry[];
@@ -37,7 +39,7 @@ function selectionQuestion(question: string, focus: string, criteria: Record<str
       instructions: {
         question,
         focus,
-        inspect: ["request", "kit_id", "recent_history"],
+        inspect: ["request", "kit_id", "recent_history", "recording"],
         context: "The current request is authoritative. History only resolves references. Never act on an older request instead.",
       },
       criteria,
@@ -53,7 +55,8 @@ function buildRootQuestions() {
     "Clear every note or start empty selects clear_pattern; never generate note-by-note deletions for this.",
     "Another/different beat, 'no, something else', 'try again', and 'shuffle funk' select shuffle_preset.",
     "Requests for regular quarter/eighth/sixteenth notes on one drum select fill_rhythm, including '16ths on the hi-hats', '16th hats on beat 2', and 'do it on beats 2, 3, 4 as well' following a rhythm fill. This takes precedence over edit_pattern. Relative volume changes still select edit_pattern.",
-    "A complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern.",
+    "A speech-only request for a complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern. A request to reproduce an accompanying demonstration selects recorded_rhythm instead of load_preset, even if it begins with give me a beat.",
+    "If recording is present, inspect recording.transcript, recording.words and recording.hit_onsets_seconds together. The transcript can OMIT the entire beatbox demonstration. An introduction such as give me a beat like... followed by a sequence of measured hits selects recorded_rhythm, not a generic preset. Word timestamps are approximate: Whisper can stretch the final word across the demonstration. Pure beatboxing also selects recorded_rhythm. Hit count alone does not establish beatboxing because speech produces transients too. Speech-only instructions such as can you swing it or load a funk beat select their normal branches. Corrections to prior take notes use edit_pattern.",
     "Requests like 'Undo that', 'undo', 'revert the last change' and 'take that back' select undo.",
     "Undo restores the complete latest change locally; never route these to note editing.",
     "Requests to redo, undo several changes at once, or selectively undo an older change are unsupported.",
@@ -114,7 +117,29 @@ export const REQUEST_QUESTIONS = Object.freeze({
 export function validRequestState(state: unknown, nodeId = "root"): state is RequestState {
   if (nodeId === "change_swing") return hasKeys(state, ["request"])
     && boundedText(state.request, 500) && Boolean(state.request.trim());
-  if (!hasKeys(state, ["request", "kit_id", "recent_history"])) return false;
+  if (!isRecord(state)) return false;
+  const keys = ["request", "kit_id", "recent_history"];
+  if (state.recording !== undefined) {
+    keys.push("recording");
+    if (!isRecord(state.recording)) return false;
+    const recordingKeys = ["transcript", "hit_count"];
+    if (state.recording.hit_onsets_seconds !== undefined) {
+      recordingKeys.push("hit_onsets_seconds");
+      const onsets = state.recording.hit_onsets_seconds;
+      if (!Array.isArray(onsets) || onsets.length !== state.recording.hit_count || onsets.length > 256
+        || !onsets.every((time, index) => Number.isFinite(time) && time >= 0 && time <= 30 && (!index || time >= onsets[index - 1]))) return false;
+    }
+    if (state.recording.words !== undefined) {
+      recordingKeys.push("words");
+      const words = state.recording.words;
+      if (!Array.isArray(words) || words.length > 32 || !words.every(word => hasKeys(word, ["word", "start", "end"])
+        && boundedText(word.word, 200) && typeof word.start === "number" && typeof word.end === "number"
+        && Number.isFinite(word.start) && Number.isFinite(word.end) && word.start >= 0 && word.end >= word.start && word.end <= 30.1)) return false;
+    }
+    if (!hasKeys(state.recording, recordingKeys) || !boundedText(state.recording.transcript, 5000) || !Number.isInteger(state.recording.hit_count) || Number(state.recording.hit_count) < 0 || Number(state.recording.hit_count) > 256) return false;
+  }
+  if (!hasKeys(state, keys)) return false;
+
   if (!boundedText(state.request, 500) || !state.request.trim()) return false;
   if (!KITS.some(kit => kit.id === state.kit_id)) return false;
   return Array.isArray(state.recent_history)

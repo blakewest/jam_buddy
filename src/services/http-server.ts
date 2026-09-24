@@ -1,8 +1,10 @@
+import { recordingQuestions, validEvidence, validateRecordingDecision } from "../core/recording/decision.js";
+import { handleTranscription } from "./transcription.js";
 import { createServer as httpServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import kitManifest from "../frontend/assets/virtuosity/manifest.json" with { type: "json" };
 import { TIMING_QUESTION } from "../ai/timing-question.js";
-import { buildPatternQuestions, buildScopeQuestion, buildTargetQuestion, buildTargetDetails, patternSummary, PLANNING_QUESTIONS } from "../ai/pattern-questions.js";
+import { buildPatternQuestions, buildScopeQuestion, buildTargetQuestion, buildTargetDetails, patternSummary, buildPlanningQuestions } from "../ai/pattern-questions.js";
 import { requestBudgetError } from "../ai/request-budget.js";
 import { buildRhythmFillQuestions, rhythmFillContext, rhythmFillIntent } from "../ai/rhythm-fill-questions.js";
 import { buildVelocityEditQuestions, velocityIntent } from "../ai/velocity-edit-questions.js";
@@ -52,6 +54,9 @@ const PUBLIC_FILES = new Map<string, [URL, string]>([
   ["/frontend/shared/idle-submit.js", staticFile("../frontend/shared/idle-submit.js", "text/javascript")],
   ["/recorded-run.json", staticFile("../../recordings/live-60s.json", "application/json")],
 ]);
+for (const name of ["capture", "analysis", "rhythm", "decision"]) PUBLIC_FILES.set(`/core/recording/${name}.js`, staticFile(`../core/recording/${name}.js`, "text/javascript"));
+for (const name of ["capture", "capture-worklet"]) PUBLIC_FILES.set(`/frontend/pattern/${name}.js`, staticFile(`../frontend/pattern/${name}.js`, "text/javascript"));
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const KIT_SAMPLE_PATHS = new Set(Object.values(kitManifest.families).flat().map(file => `/assets/virtuosity/${file}`));
 for (const name of ["kits", "request-tree", "undo", "swing", "rhythm-fill"]) PUBLIC_FILES.set(`/core/pattern/${name}.js`, staticFile(`../core/pattern/${name}.js`, "text/javascript"));
 for (const page of ["pattern", "timing", "presets"]) PUBLIC_FILES.set(`/frontend/${page}/app.js`, staticFile(`../frontend/${page}/app.js`, "text/javascript"));
@@ -76,7 +81,10 @@ function validState(input: unknown) {
 
 function validPatternState(input: unknown): input is PatternJevState {
   const state = input as PatternJevState;
-  if (!exactKeys(state, ["request", "pattern", "music_reference", "recent_history"]) || typeof state.request !== "string" || !state.request.trim() || state.request.length > 500) return false;
+  if (isRecord(state) && state.recent_take !== undefined) {
+    if (!exactKeys(state.recent_take, ["id", "note_ids"]) || typeof state.recent_take.id !== "string" || state.recent_take.id.length > 100 || !Array.isArray(state.recent_take.note_ids) || state.recent_take.note_ids.length > 256 || !state.recent_take.note_ids.every(id => typeof id === "string" && /^note_[1-9]\d*$/.test(id))) return false;
+  }
+  if (!exactKeys(state, ["request", "pattern", "music_reference", "recent_history", ...(isRecord(state) && state.recent_take !== undefined ? ["recent_take"] : [])]) || typeof state.request !== "string" || !state.request.trim() || state.request.length > 500) return false;
   if (JSON.stringify(state.music_reference) !== JSON.stringify(MUSIC_REFERENCE)) return false;
   if (!exactKeys(state.pattern, ["bars", "meter", "ticks_per_quarter", "parts"]) || !Number.isInteger(state.pattern.bars) || state.pattern.bars < 1 || state.pattern.bars > MAX_BARS || !validMeter(state.pattern.meter) || state.pattern.ticks_per_quarter !== TICKS_PER_QUARTER || !exactKeys(state.pattern.parts, INSTRUMENTS)) return false;
   const ids = new Set();
@@ -92,6 +100,10 @@ function validPatternState(input: unknown): input is PatternJevState {
   return state.recent_history.every(entry => exactKeys(entry, ["request", "applied_changes", "rejected_changes"])
     && typeof entry.request === "string" && entry.request.length <= 500
     && [entry.applied_changes, entry.rejected_changes].every(items => Array.isArray(items) && items.length <= 8 && items.every(item => typeof item === "string" && item.length <= 300)));
+}
+
+function validRecordingState(state: unknown) {
+  return isRecord(state) && validEvidence(state.evidence) && validPatternState(state.pattern_state) && isRecord(state.playback);
 }
 
 function validPatternAnswers(input: unknown, questions: Questions): input is JevResponse {
@@ -111,7 +123,7 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
   if (!res.destroyed) res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers }).end(JSON.stringify(body));
 }
 
-export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl = fetch } = {}) {
+export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl = fetch, openRouterKey = process.env.OPENROUTER_API_KEY } = {}) {
   return httpServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-ancestors 'none'");
@@ -156,7 +168,12 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       } catch { json(res, 404, { error: "File not found." }); }
       return;
     }
-    if (!["/api/rhythm-fill", "/api/request-decision", "/api/decision", "/api/pattern-decision", "/api/pattern-plan", "/api/pattern-edit-intent", "/api/pattern-route", "/api/preset-search", "/api/preset-select"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
+    if (path === "/api/transcribe" && req.method === "POST") {
+      if ((req.headers.origin && req.headers.origin !== `http://${host}`) || req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Foreign origin rejected." });
+      await handleTranscription(req, res, openRouterKey, fetchImpl);
+      return;
+    }
+    if (!["/api/recording-decision", "/api/rhythm-fill", "/api/request-decision", "/api/decision", "/api/pattern-decision", "/api/pattern-plan", "/api/pattern-edit-intent", "/api/pattern-route", "/api/preset-search", "/api/preset-select"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
     if (req.headers.origin && req.headers.origin !== `http://${host}`) return json(res, 403, { error: "Foreign origin rejected." });
     if (req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Cross-site request rejected." });
     if (req.headers["content-type"]?.split(";")[0].trim() !== "application/json") return json(res, 415, { error: "JSON required." });
@@ -172,6 +189,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       }
       payload = JSON.parse(Buffer.concat(chunks).toString());
     } catch { return json(res, 400, { error: "Invalid JSON." }); }
+    const recordingRequest = path === "/api/recording-decision";
     const planRequest = path === "/api/pattern-plan";
     const rhythmRequest = path === "/api/rhythm-fill";
     const intentRequest = path === "/api/pattern-edit-intent";
@@ -184,12 +202,12 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     const validInstruments = editRequest && exactKeys(payload, ["state", "instruments"]) && Array.isArray(payload.instruments) && payload.instruments.length >= 1 && payload.instruments.length <= INSTRUMENTS.length && new Set(payload.instruments).size === payload.instruments.length && payload.instruments.every(instrument => INSTRUMENTS.includes(instrument));
     const validRequestText = typeof payload?.request === "string" && Boolean(payload.request.trim()) && payload.request.length <= 500;
     const validCandidateIds = presetSelectRequest && exactKeys(payload, ["request", "candidate_ids"]) && validRequestText && Array.isArray(payload.candidate_ids) && payload.candidate_ids.length >= 1 && payload.candidate_ids.length <= 8 && new Set(payload.candidate_ids).size === payload.candidate_ids.length && payload.candidate_ids.every(id => presetById(id));
-    const validPayload = treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestQuestion(payload.node_id) && validRequestState(payload.state, payload.node_id) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : routeRequest || presetSearchRequest ? exactKeys(payload, ["request"]) && validRequestText : presetSelectRequest ? validCandidateIds : exactKeys(payload, ["state"]);
-    if (!validPayload || (patternRequest && !validPatternState(payload.state)) || (!treeRequest && !patternRequest && !routeRequest && !presetSearchRequest && !presetSelectRequest && !validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
+    const validPayload = recordingRequest ? exactKeys(payload, ["state"]) : treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestQuestion(payload.node_id) && validRequestState(payload.state, payload.node_id) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : routeRequest || presetSearchRequest ? exactKeys(payload, ["request"]) && validRequestText : presetSelectRequest ? validCandidateIds : exactKeys(payload, ["state"]);
+    if (!validPayload || (recordingRequest && !validRecordingState(payload.state)) || (patternRequest && !validPatternState(payload.state)) || (!recordingRequest && !treeRequest && !patternRequest && !routeRequest && !presetSearchRequest && !presetSelectRequest && !validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
     if (!apiKey?.trim()) return json(res, 503, { code: "missing_api_key", error: "Set TYPESAFE_API_KEY in the local .env file, then restart the server." });
     const candidates = presetSelectRequest ? payload.candidate_ids.map(id => presetById(id)!) : [];
     let largeEdit = editRequest && (payload.state.pattern.bars > 1 || payload.instruments.reduce((sum, instrument) => sum + payload.state.pattern.parts[instrument].length, 0) > 6);
-    let questions: Questions = routeRequest ? ROOT_QUESTIONS : presetSearchRequest ? PRESET_SEARCH_QUESTIONS : presetSelectRequest ? buildPresetSelectionQuestions(candidates) : planRequest ? PLANNING_QUESTIONS : editRequest && !largeEdit ? buildPatternQuestions(payload.state, payload.instruments) : { action: TIMING_QUESTION };
+    let questions: Questions = routeRequest ? ROOT_QUESTIONS : presetSearchRequest ? PRESET_SEARCH_QUESTIONS : presetSelectRequest ? buildPresetSelectionQuestions(candidates) : planRequest ? buildPlanningQuestions(payload.state) : editRequest && !largeEdit ? buildPatternQuestions(payload.state, payload.instruments) : { action: TIMING_QUESTION };
     if (editRequest && !largeEdit && requestBudgetError(payload.state, questions)) largeEdit = true;
     let upstreamState: unknown = routeRequest || presetSearchRequest ? { request: payload.request } : presetSelectRequest ? { request: payload.request, candidates: candidates.map(({ id, name, genres, meter, feel, tags, bars, source, description }) => ({ id, name, genres, meter, feel, tags, bars, source_bpm: source.bpm ?? null, description })) } : payload.state;
     if (intentRequest) {
@@ -200,9 +218,10 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       questions = buildRhythmFillQuestions(payload.state);
       upstreamState = rhythmFillContext(payload.state);
     }
+    if (recordingRequest) questions = recordingQuestions((payload.state as unknown as { evidence: import("../core/recording/decision.js").RecordingEvidence }).evidence);
     if (treeRequest) questions = REQUEST_QUESTIONS[payload.node_id].buildQuestions();
     const abort = new AbortController();
-    const timeoutMs = patternRequest ? 10000 : 2000;
+    const timeoutMs = (patternRequest || treeRequest || recordingRequest) ? 10000 : 2000;
     const timer = setTimeout(() => abort.abort(), timeoutMs);
     const disconnect = () => { if (!res.writableEnded) abort.abort(); };
     res.on("close", disconnect);
@@ -225,7 +244,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
         throw Object.assign(new Error(exceeded ? "TypeSafe's context limit was exceeded. Please narrow the edit to one instrument and bar." : `TypeSafe returned HTTP ${upstream.status}.`), { status: upstream.status, retry });
       }
       const data = await upstream.json();
-        if ((treeRequest || patternRequest || routeRequest || presetSearchRequest || presetSelectRequest) && !validPatternAnswers(data, nodeQuestions)) throw Object.assign(new Error("TypeSafe returned invalid pattern answers."), { status: 502 });
+        if ((recordingRequest || treeRequest || patternRequest || routeRequest || presetSearchRequest || presetSelectRequest) && !validPatternAnswers(data, nodeQuestions)) throw Object.assign(new Error("TypeSafe returned invalid pattern answers."), { status: 502 });
         questionCount += Object.keys(nodeQuestions).length;
         for (const [key, value] of Object.entries(data.usage ?? {})) if (typeof value === "number" && Number.isFinite(value)) usage[key] = (usage[key] ?? 0) + value;
         return data;
@@ -246,6 +265,10 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       }
       if (planRequest && requestBudgetError(upstreamState, questions)) upstreamState = patternSummary(payload.state);
       const data = await evaluate(upstreamState, questions);
+      if (recordingRequest) {
+        const decision = validateRecordingDecision((payload.state as unknown as { evidence: import("../core/recording/decision.js").RecordingEvidence }).evidence, data.answers);
+        return json(res, 200, { decision, answers: data.answers, model: data.model, usage, question_count: questionCount });
+      }
       if (treeRequest) {
         const outcome = REQUEST_QUESTIONS[payload.node_id].validate(data.answers);
         return json(res, 200, { answers: data.answers, outcome, model: data.model, usage, question_count: questionCount });
@@ -275,7 +298,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
           const scores: [Instrument, number][] = INSTRUMENTS.map(instrument => [instrument, data.answers[`involves_${instrument}`].noul!]);
           let relevantInstruments = scores.filter(([, score]) => score >= 0.5).map(([instrument]) => instrument);
           if (!relevantInstruments.length) relevantInstruments = [scores.reduce((best, item) => item[1] > best[1] ? item : best)[0]];
-          return json(res, 200, { operation_count: operationCount, phrase_bars: phraseBars, relevant_instruments: relevantInstruments, answers: data.answers, model: data.model, usage: data.usage, question_count: Object.keys(questions).length });
+          return json(res, 200, { operation_count: operationCount, ...(data.answers.recorded_take_instrument?.choice && data.answers.recorded_take_instrument.choice !== "ordinary_edit" ? { recorded_take_instrument: data.answers.recorded_take_instrument.choice } : {}), phrase_bars: phraseBars, relevant_instruments: relevantInstruments, answers: data.answers, model: data.model, usage: data.usage, question_count: Object.keys(questions).length });
         }
         return json(res, 200, { answers: data.answers, model: data.model, usage, question_count: questionCount, traversal });
       }

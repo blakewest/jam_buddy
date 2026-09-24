@@ -3,8 +3,8 @@ import type { Questions } from "./question-types.js";
 import { INSTRUMENTS } from "../core/pattern/state.js";
 import { editPositions } from "../core/pattern/musical-time.js";
 
-const inspect = ["request", "pattern.bars", "pattern.parts", "music_reference", "recent_history"];
-const context = "Make the next single-note edit that moves `pattern` closer to the current `request`. If the pattern already fulfills the request, choose no edits. The application will send another pass with the updated pattern when more work remains. The current request is authoritative; use `recent_history` only to resolve references such as 'that' or 'again'.";
+const inspect = ["request", "pattern.bars", "pattern.parts", "music_reference", "recent_history", "recent_take"];
+const context = "Make the next single-note edit that moves `pattern` closer to the current `request`. If the pattern already fulfills the request, choose no edits. The application will send another pass with the updated pattern when more work remains. When present, `recent_take.note_ids` identifies the most recently inserted demonstration; use it for 'those' or 'that take'. Relabeling those hits preserves their timing unless timing is explicitly requested. The current request is authoritative; use `recent_history` only to resolve references such as 'that' or 'again'.";
 const operationCountQuestion = {
   type: "choice",
   instructions: {
@@ -218,4 +218,13 @@ export function buildTargetDetails(state: PatternJevState, instrument: Instrumen
   const note = state.pattern.parts[instrument].find(note => note.id === target && note.bar === bar);
   if (!note) throw new Error("Invalid edit target.");
   return noteQuestions({ ...note, instrument });
+}
+
+export function buildPlanningQuestions(state: PatternJevState) {
+  if (!state.recent_take?.note_ids.length) return PLANNING_QUESTIONS;
+  return { ...PLANNING_QUESTIONS, recorded_take_instrument: {
+    type: "choice" as const,
+    instructions: "Does `request` ONLY ask to relabel all notes identified by `recent_take.note_ids` as one instrument (for example 'those should be hi-hats')? Select that instrument only for an explicit whole-take label correction. Otherwise use ordinary_edit, including changes to timing, velocity, phrase length, a subset of hits, or multiple kinds of edits.",
+    criteria: { ordinary_edit: "Use the normal atomic note edit loop.", kick: "All notes of the last take should be kicks.", snare: "All notes of the last take should be snares.", closed_hat: "All notes of the last take should be closed hi-hats.", open_hat: "All notes of the last take should be open hi-hats." },
+  } };
 }

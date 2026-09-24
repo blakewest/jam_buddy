@@ -53,7 +53,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .prompt { margin-top: 16px; padding: 22px; }
 .pending { border: 1px solid #756c45; border-radius: 20px; padding: 5px 9px; color: #d3c58f; background: #2a281c; font-size: 10px; }
 .prompt form { margin-top: 17px; }.prompt form > label { display: block; margin-bottom: 7px; color: #85949f; font-size: 10px; }
-.prompt-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: stretch; }
+.prompt-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: stretch; }
 .prompt-row textarea { resize: vertical; min-height: 58px; border: 1px solid #34414a; border-radius: 6px; padding: 11px 12px; background: #0f151a; color: #e3eaed; font-size: 13px; line-height: 1.5; }
 .prompt-row button { min-width: 100px; }.auto-submit { display: flex; align-items: center; gap: 7px; width: fit-content; margin-top: 10px; color: #91a0aa; font-size: 10px; cursor: pointer; }.auto-submit input { accent-color: #a9cfb1; }.examples { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }.examples button { padding: 6px 9px; color: #91a0aa; background: transparent; font-size: 10px; }
 .request-status { display: flex; justify-content: space-between; gap: 14px; margin-top: 15px; padding-top: 14px; border-top: 1px solid #29323a; color: #8c9aa4; font-size: 11px; }.request-status span:last-child { color: #687984; font-variant-numeric: tabular-nums; }
@@ -68,3 +68,10 @@ footer { padding: 20px 2px; color: #5f707b; font-size: 10px; }
 .kit-select { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .kit-select select { font: inherit; color: inherit; background: transparent; border: 1px solid #b9c5c1; border-radius: 8px; padding: 8px 12px; }
 .kit-select select:disabled { opacity: 0.6; }
+
+.recording-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
+.recording-tools[hidden] { display: none; }
+.recording-tools input { width: 84px; }
+.recording-tools label { display: flex; gap: 6px; align-items: center; }
+#record { touch-action: none; user-select: none; }
+#record[aria-pressed="true"] { background: #b73346; color: white; }

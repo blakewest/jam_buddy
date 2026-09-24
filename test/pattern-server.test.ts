@@ -303,7 +303,7 @@ test("rhythm endpoint interprets targets together and excludes full note state f
     assert.equal((await fetch(`${url}/core/pattern/rhythm-fill.js`)).status, 200);
   }, { fetchImpl: async (_url, options) => {
     const payload = JSON.parse(String(options?.body));
-    assert.deepEqual(payload.state.previous_change, history[1]);
+    assert.deepEqual(payload.state.recent_history, history);
     assert.equal("pattern" in payload.state, false);
     assert.equal(requestBudgetError(payload.state, payload.questions), null);
     const selections: Record<string, string> = { operation: "fill", instrument: "closed_hat", note_value: "sixteenths", beat_scope: "selected", bar_scope: "all", velocity: "medium" };

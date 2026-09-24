@@ -88,3 +88,22 @@ test("invalid swing decisions reject atomically", async () => {
   assert.equal(swing(state), 50);
   assert.deepEqual((await requestSwing(state, "unsupported")).state.pattern, state.pattern);
 });
+
+test("spoken swing commands follow the swing branch despite detected speech transients", async () => {
+  const state = seed();
+  const request = "Can you swing it?";
+  const recording = { transcript: request, hit_count: 3 };
+  const completed = await runPatternCommand({
+    initialState: state, request, recording,
+    decideNode: async (node, context) => {
+      if (node === "root") assert.deepEqual(context.recording, recording);
+      else assert.deepEqual(context, { request });
+      return { answers: { selection: { type: "choice", choice: node === "root" ? "change_swing" : "light" } } };
+    },
+    recordedRhythm: async () => { throw new Error("Speech must not insert drum hits"); },
+    editPattern: async () => { throw new Error("Swing must not edit notes"); },
+  });
+  assert.equal(swing(completed.state), 55);
+  assert.deepEqual(completed.state.pattern.notes, state.pattern.notes);
+  assert.deepEqual(completed.routing?.map(route => route.node_id), ["root", "change_swing"]);
+});

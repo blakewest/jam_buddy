@@ -5,8 +5,12 @@ import type { Answers } from "./question-types.js";
 const choice = (instructions: string, criteria: Record<string, string>) => ({ type: "choice", instructions, criteria });
 export function buildVelocityEditQuestions(state: PatternJevState) {
   return {
-    operation: choice("Does `request` ask ONLY for a relative loudness/velocity increase or decrease of specified drum notes? Choose other for exact numbers, percentages, doubling/halving, mixed edits, adding notes, or unclear references. Louder means increase from the values at submission, even if already accented.", {
-      increase: "Louder, increase velocity: +16", increase_lots: "Much louder, a lot stronger: +32", decrease: "Quieter, decrease velocity: -16", decrease_lots: "Much quieter: -32", other: "Another edit, an unsupported amount, or ambiguous targets",
+    operation: choice("Which relative loudness/velocity change does `request` ask for? In this drum editor, quiet down, turn down, lower/reduce/decrease velocity, softer, less loud, and less intense all mean decrease note velocity. No numeric amount is required. 'Nice, but quiet down all the hi-hats' is decrease; polite words and feedback such as nice, okay, or but are not additional edits. Louder, turn up, increase velocity, stronger, and accent mean increase from the values at submission, even if already accented. Use the larger change only for explicit emphasis such as much, a lot, or really. Beat/bar numbers and all-notes scopes select targets, not exact velocity amounts. Choose other for exact velocity values or numeric changes, percentages, doubling/halving, requests combining velocity with another edit, adding/removing/moving notes, or unresolved references.", {
+      increase: "Louder, turn up, increase velocity, stronger, accent: increase each selected note once by 16",
+      increase_lots: "Much louder, a lot stronger, really loud: increase each selected note once by 32",
+      decrease: "Quiet down, turn down, reduce/lower/decrease velocity, softer, quieter, less loud: decrease each selected note once by 16",
+      decrease_lots: "Much quieter, a lot softer, really quiet: decrease each selected note once by 32",
+      other: "Not a relative note-velocity change, an unsupported numeric amount, a mixed edit, or unresolved references. Ordinary quiet-down/softer requests belong to decrease.",
     }),
     instrument: choice("Which instrument does this velocity request explicitly target? Unqualified hi-hats means both closed and open hats. Choose unknown for unclear references like 'those' without an explicit target.", { ...Object.fromEntries(INSTRUMENTS.map(i => [i, i])), hats: "Hi-hats, open and closed", all: "All drums", unknown: "Unclear or multiple instruments other than hats/all" }),
     beat_scope: choice("Does the request specify numbered beats?", { all: "No numbered restriction, all beats", selected: "Specific numbered beats" }),

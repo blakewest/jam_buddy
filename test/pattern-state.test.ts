@@ -194,3 +194,21 @@ test("history retains only the newest eight entries", () => {
   assert.equal(state.recent_history[0].request, "request 3");
   assert.equal(state.recent_history[7].request, "request 10");
 });
+
+
+test("saved recording state migrates tempo and retains bounded take references alongside playback settings", () => {
+  const state = createPatternState({
+    pattern: { tempo_bpm: 72.5, bars: 1, meter: { numerator: 3, denominator: 4 }, swing_percent: 60, kit_id: "tr_808", notes: [note("note_1", "kick", 1)] },
+    recent_take: { id: "take", note_ids: ["note_1", "missing"] },
+    undo_history: [{ request: "record", pattern: { tempo_bpm: 97, notes: [note("note_2", "snare", 5)] }, recent_take: { id: "older", note_ids: ["note_2", "missing"] } }],
+  });
+  assert.equal(state.tempo_bpm, 72.5);
+  assert.equal("tempo_bpm" in state.pattern, false);
+  assert.deepEqual(state.pattern.meter, { numerator: 3, denominator: 4 });
+  assert.equal(state.pattern.swing_percent, 60);
+  assert.equal(state.pattern.kit_id, "tr_808");
+  assert.deepEqual(state.recent_take, { id: "take", note_ids: ["note_1"] });
+  assert.deepEqual(stateForJev(state, "edit the take").recent_take, state.recent_take);
+  assert.equal(state.undo_history[0].tempo_bpm, 97);
+  assert.deepEqual(state.undo_history[0].recent_take, { id: "older", note_ids: ["note_2"] });
+});
