@@ -89,14 +89,18 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     applyEffects(activePattern);
   }
 
-  function applyEffects(pattern: PlaybackPattern) {
+  function applyEffects(pattern: PlaybackPattern, atTime?: number) {
     const glue = pattern.effects?.compression === true;
     const polish = pattern.effects?.polish === true;
-    eq.gain.value = polish ? 1.5 : 0;
-    compressor.threshold.value = glue ? -22 : polish ? -16 : 0;
-    compressor.ratio.value = glue ? 3 : polish ? 2 : 1;
-    compressor.attack.value = glue ? 0.02 : 0.01;
-    compressor.release.value = glue ? 0.18 : 0.22;
+    const set = (param: AudioParam, value: number) => {
+      if (atTime === undefined) param.value = value;
+      else param.setValueAtTime(value, atTime);
+    };
+    set(eq.gain, polish ? 1.5 : 0);
+    set(compressor.threshold, glue && polish ? -20 : polish ? -16 : glue ? -22 : 0);
+    set(compressor.ratio, glue && polish ? 2.5 : polish ? 2 : glue ? 3 : 1);
+    set(compressor.attack, polish ? 0.01 : 0.02);
+    set(compressor.release, polish ? 0.22 : 0.18);
   }
 
   async function load(pattern = activePattern) {
@@ -143,7 +147,6 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     if (audibleSwap && context.currentTime >= audibleSwap.time) {
       const accepted = audibleSwap.pattern;
       audibleSwap = null;
-      applyEffects(accepted);
       onSwap(clone(accepted));
     }
     const horizon = context.currentTime + LOOKAHEAD_SECONDS;
@@ -157,6 +160,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     pendingPattern = window.pendingPattern;
     pendingBpm = window.pendingBpm;
     if (window.didSwap) {
+      applyEffects(activePattern, boundaryTime);
       if (pendingBoundary === "phrase") originTime = boundaryTime;
       pendingBoundaryTime = null;
       audibleSwap = { pattern: clone(activePattern), time: boundaryTime + (context.outputLatency ?? 0) + (context.baseLatency ?? 0) };
@@ -201,6 +205,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     pendingBoundaryTime = null;
     pendingBoundary = "phrase";
     audibleSwap = null;
+    if (context) for (const param of [eq.gain, compressor.threshold, compressor.ratio, compressor.attack, compressor.release]) param.cancelScheduledValues(context.currentTime);
     playing = false;
     if (timer) window.clearInterval(timer);
     timer = null;

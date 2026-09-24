@@ -12,8 +12,18 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
   const hits: { time: number; url: string; gain: number }[] = [];
   const stops: { time?: number; url: string }[] = [];
   const fetched: string[] = [];
-  const compressors: { threshold: { value: number }; ratio: { value: number }; attack: { value: number }; release: { value: number } }[] = [];
-  const filters: { type: string; frequency: { value: number }; gain: { value: number } }[] = [];
+  type TestParam = { value: number; events: { value: number; time: number }[]; setValueAtTime(next: number, time: number): void; cancelScheduledValues(time: number): void };
+  const parameters: TestParam[] = [];
+  function parameter(value: number): TestParam {
+    const param = { value, events: [] as { value: number; time: number }[],
+      setValueAtTime(next: number, time: number) { this.events.push({ value: next, time }); },
+      cancelScheduledValues(time: number) { this.events = this.events.filter(event => event.time < time); },
+    };
+    parameters.push(param);
+    return param;
+  }
+  const compressors: { threshold: ReturnType<typeof parameter>; ratio: ReturnType<typeof parameter>; attack: ReturnType<typeof parameter>; release: ReturnType<typeof parameter> }[] = [];
+  const filters: { type: string; frequency: ReturnType<typeof parameter>; gain: ReturnType<typeof parameter> }[] = [];
   let tick: () => void;
   let context: AudioContext;
   class AudioContext {
@@ -21,8 +31,8 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
     destination = {};
     constructor() { context = this; }
     createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} }; }
-    createDynamicsCompressor() { const node = { threshold: { value: 0 }, ratio: { value: 1 }, attack: { value: 0 }, release: { value: 0 }, connect() {} }; compressors.push(node); return node; }
-    createBiquadFilter() { const node = { type: "", frequency: { value: 0 }, gain: { value: 0 }, connect() {} }; filters.push(node); return node; }
+    createDynamicsCompressor() { const node = { threshold: parameter(0), ratio: parameter(1), attack: parameter(0), release: parameter(0), connect() {} }; compressors.push(node); return node; }
+    createBiquadFilter() { const node = { type: "", frequency: parameter(0), gain: parameter(0), connect() {} }; filters.push(node); return node; }
     createBufferSource() { return { buffer: { url: "" }, output: { gain: { value: 1 } }, connect(gain: { gain: { value: number } }) { this.output = gain; }, start(time: number) { hits.push({ time, url: this.buffer.url, gain: this.output.gain.value }); }, stop(time?: number) { stops.push({ time, url: this.buffer?.url }); } }; }
     async decodeAudioData(url: string) { return { url }; }
     async resume() {}
@@ -37,7 +47,14 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
     return { ok: true, arrayBuffer: async () => path } as unknown as Response;
   };
   t.after(() => { globalThis.window = originalWindow; globalThis.fetch = originalFetch; });
-  return { hits, stops, fetched, compressors, filters, tick: (time: number) => { context.currentTime = time; tick(); } };
+  return { hits, stops, fetched, compressors, filters, tick: (time: number) => {
+    context.currentTime = time;
+    for (const param of parameters) {
+      for (const event of param.events) if (event.time <= time) param.value = event.value;
+      param.events = param.events.filter(event => event.time > time);
+    }
+    tick();
+  } };
 }
 
 test("effect settings follow the audible pattern and do not stack on repeat", async t => {
@@ -51,6 +68,7 @@ test("effect settings follow the audible pattern and do not stack on repeat", as
   await player.stage(compressed);
   h.tick(1.97);
   assert.equal(h.compressors[0].ratio.value, 1);
+  assert.deepEqual(h.compressors[0].ratio.events, [{ value: 3, time: 2.05 }]);
   h.tick(2.06);
   assert.ok(h.compressors[0].ratio.value > 1);
   assert.equal(h.filters[0].gain.value, 0);
@@ -58,6 +76,7 @@ test("effect settings follow the audible pattern and do not stack on repeat", as
   h.tick(3.97);
   h.tick(4.06);
   assert.ok(h.filters[0].gain.value > 0);
+  assert.equal(h.compressors[0].ratio.value, 2.5, "both effects use a combined compressor setting");
   assert.equal(h.compressors.length, 1);
   await player.stage(dry);
   h.tick(5.97);
