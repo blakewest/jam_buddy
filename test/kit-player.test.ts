@@ -55,6 +55,72 @@ test("one scheduling window keeps old-kit hits before and new-kit hits after the
   player.stop();
 });
 
+test("note edits become audible next beat without restarting the two-bar phrase", async t => {
+  const h = harness(t);
+  let swaps = 0;
+  const player = createPatternPlayer({ onSwap: () => swaps++ });
+  const before = { ...pattern("acoustic"), bars: 2, notes: [pattern("acoustic").notes[0]] };
+  await player.start(before, 120);
+  h.tick(0.2);
+  const after: Pattern = { ...before, notes: [...before.notes,
+    { id: "hat_1", instrument: "closed_hat", bar: 1, tick: 960, velocity: 64 },
+    { id: "hat_2", instrument: "closed_hat", bar: 2, tick: 960, velocity: 96 },
+  ] };
+  assert.equal(await player.stage(after, 120, "beat"), "beat");
+  h.tick(0.45); // Window ends exactly at the boundary; leave the swap pending.
+  assert.equal(swaps, 0);
+  h.tick(0.48);
+  assert.equal(swaps, 0, "lookahead is not yet audible");
+  h.tick(0.56);
+  assert.equal(swaps, 1);
+  h.tick(2.5);
+  const hats = h.hits.filter(hit => hit.url.includes("closed.wav"));
+  assert.deepEqual(hats.map(hit => Number(hit.time.toFixed(2))), [0.55, 2.55]);
+  assert.equal(h.hits.filter(hit => hit.url.includes("kick.wav")).length, 1, "do not replay beat one on the swap");
+  assert.equal(player.snapshot(after, 0).origin_context_seconds, 0.05);
+  player.stop();
+});
+
+test("beat edits skip already scheduled audio and structural changes still wait for a phrase", async t => {
+  const h = harness(t);
+  const player = createPatternPlayer();
+  const before = pattern("acoustic");
+  await player.start(before, 120);
+  h.tick(0.5); // Lookahead already extends past the 0.55 beat.
+  const after: Pattern = { ...before, notes: [...before.notes, { id: "hat", instrument: "closed_hat", bar: 1, tick: 1920, velocity: 64 }] };
+  await player.stage(after, 120, "beat");
+  h.tick(0.56);
+  assert.equal(player.hasPendingPattern(), true);
+  h.tick(1);
+  assert.ok(h.hits.some(hit => hit.url.includes("closed.wav") && Math.abs(hit.time - 1.05) < 1e-8));
+  h.tick(1.06);
+  assert.equal(await player.stage({ ...after, bars: 2 }, 120, "beat"), "phrase");
+  h.tick(1.6);
+  assert.equal(player.hasPendingPattern(), true);
+  player.stop();
+});
+
+test("staged tempo stays pending until audible and updates the recording clock at the phrase", async t => {
+  const h = harness(t);
+  let swaps = 0;
+  const player = createPatternPlayer({ onSwap: () => swaps++ });
+  const beat = { ...pattern("acoustic"), bars: 2 };
+  await player.start(beat, 120);
+  h.tick(1);
+  await player.stage(beat, 60);
+  assert.equal(player.hasPendingPattern(), true);
+  assert.equal(player.snapshot(beat, 0).tempo_bpm, 120);
+  h.tick(3.98);
+  assert.equal(swaps, 0);
+  assert.equal(player.hasPendingPattern(), true);
+  h.tick(4.06);
+  assert.equal(swaps, 1);
+  assert.equal(player.hasPendingPattern(), false);
+  assert.equal(player.snapshot(beat, 0).tempo_bpm, 60);
+  assert.equal(player.snapshot(beat, 0).origin_context_seconds, 4.05);
+  player.stop();
+});
+
 test("stop during kit loading prevents an asynchronous start", async t => {
   let release!: () => void;
   const deferred = new Promise<void>(resolve => { release = resolve; });
@@ -94,5 +160,19 @@ test("closed hats choke an old-kit open hat across a kit boundary", async t => {
   h.tick(1.97);
   assert.ok(h.stops.some(stop => stop.url.includes("tr_808/open_hat") && Math.abs((stop.time ?? Infinity) - 2.06) < 0.001));
   assert.ok(h.hits.some(hit => hit.url.includes("tr_505/closed_hat") && Math.abs(hit.time - 2.05) < 0.001));
+  player.stop();
+});
+
+test("pattern acceptance waits until the audible boundary, not the scheduler lookahead", async t => {
+  const h = harness(t);
+  let swapped = false;
+  const player = createPatternPlayer({ onSwap: () => { swapped = true; } });
+  await player.start(pattern("acoustic"));
+  await player.stage(pattern("acoustic"));
+  h.tick(1.97);
+  assert.equal(swapped, false);
+  assert.equal(player.hasPendingPattern(), true);
+  h.tick(2.06);
+  assert.equal(swapped, true);
   player.stop();
 });

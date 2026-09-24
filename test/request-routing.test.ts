@@ -4,7 +4,7 @@ import { REQUEST_CATEGORIES, resolveRoot, unsupportedMessage } from "../src/core
 import { ROOT_QUESTIONS } from "../src/ai/request-tree-questions.js";
 
 test("root categories have stable IDs and explicit next nodes", () => {
-  assert.deepEqual(Object.keys(REQUEST_CATEGORIES).sort(), ["fill_rhythm", "edit_pattern", "change_kit", "change_swing", "undo", "load_preset", "clear_pattern", "shuffle_preset", "unsupported"].sort());
+  assert.deepEqual(Object.keys(REQUEST_CATEGORIES).sort(), ["recorded_rhythm", "fill_rhythm", "edit_pattern", "change_kit", "change_swing", "undo", "load_preset", "clear_pattern", "shuffle_preset", "unsupported"].sort());
   assert.equal(resolveRoot("clear_pattern").next_node, "pattern_clear");
   assert.equal(resolveRoot("shuffle_preset").next_node, "preset_shuffle");
   assert.equal(resolveRoot("edit_pattern").next_node, "edit_plan");

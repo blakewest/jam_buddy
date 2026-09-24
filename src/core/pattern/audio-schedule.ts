@@ -2,7 +2,8 @@ import { swungTick } from "./swing.js";
 import { ticksPerBar } from "./musical-time.js";
 import { pitchForNote, sampleFamily } from "./drum-pitches.js";
 
-import type { Pattern } from "./state.js";
+import type { Pattern, PatternNote } from "./state.js";
+export type ScheduledPatternHit = PatternNote & { time: number; kit_id: string; sample_family: string; layer: number; gain: number };
 export type PlaybackPattern = Omit<Pattern, "kit_id"> & { kit_id?: string };
 export const secondsPerTick = (bpm: number) => 60 / bpm / 960;
 
@@ -18,7 +19,7 @@ export function patternDurationSeconds(pattern: PlaybackPattern, bpm: number) {
 
 export function eventsForWindow(pattern: PlaybackPattern, bpm: number, fromTime: number, toTime: number, originTime = 0) {
   if (toTime <= fromTime) return [];
-  const events = [];
+  const events: ScheduledPatternHit[] = [];
   const barTicks = ticksPerBar(pattern.meter);
   const tickSeconds = secondsPerTick(bpm);
   const phraseSeconds = patternDurationSeconds(pattern, bpm);
@@ -34,7 +35,7 @@ export function eventsForWindow(pattern: PlaybackPattern, bpm: number, fromTime:
   return events.sort((left, right) => left.time - right.time || left.bar - right.bar || left.tick - right.tick);
 }
 
-export function splitPatternWindow({ activePattern, activeBpm, pendingPattern, pendingBpm, fromTime, toTime, originTime, boundaryTime }: { activePattern: PlaybackPattern; activeBpm: number; pendingPattern: PlaybackPattern | null; pendingBpm: number | null; fromTime: number; toTime: number; originTime: number; boundaryTime: number }) {
+export function splitPatternWindow({ activePattern, activeBpm, pendingPattern, pendingBpm, fromTime, toTime, originTime, boundaryTime, preservePhase = false }: { activePattern: PlaybackPattern; activeBpm: number; pendingPattern: PlaybackPattern | null; pendingBpm: number | null; fromTime: number; toTime: number; originTime: number; boundaryTime: number; preservePhase?: boolean }) {
   if (!pendingPattern || boundaryTime >= toTime) {
     return { events: eventsForWindow(activePattern, activeBpm, fromTime, toTime, originTime), activePattern, activeBpm, pendingPattern, pendingBpm, didSwap: false };
   }
@@ -42,7 +43,7 @@ export function splitPatternWindow({ activePattern, activeBpm, pendingPattern, p
   return {
     events: [
       ...eventsForWindow(activePattern, activeBpm, fromTime, boundary, originTime),
-      ...eventsForWindow(pendingPattern, pendingBpm ?? activeBpm, boundary, toTime, boundaryTime),
+      ...eventsForWindow(pendingPattern, pendingBpm ?? activeBpm, boundary, toTime, preservePhase ? originTime : boundaryTime),
     ],
     activePattern: pendingPattern,
     activeBpm: pendingBpm ?? activeBpm,

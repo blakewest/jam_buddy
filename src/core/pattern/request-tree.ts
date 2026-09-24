@@ -6,7 +6,7 @@ import { getKit, KITS } from "./kits.js";
 import type { Candidate, HistoryEntry, PatternChange, PatternState } from "./state.js";
 import type { PatternPass, PatternPlan, PatternRunResult } from "./runner.js";
 
-export type RequestBranchId = "fill_rhythm" | "change_swing" | "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
+export type RequestBranchId = "recorded_rhythm" | "fill_rhythm" | "change_swing" | "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
 export type RequestQuestionId = "root" | "change_kit" | "change_swing";
 export type NodeAnswer = { selection?: { type: "choice"; choice: string } };
 export type NodeOutcome =
@@ -20,16 +20,25 @@ export type NodeDecision = {
   latency_ms?: number;
   question_count?: number;
 };
-type RequestContext = {
+export type RecordingContext = {
+  transcript: string;
+  hit_count: number;
+  hit_onsets_seconds?: number[];
+  words?: { word: string; start: number; end: number }[];
+};
+export type RequestContext = {
+  recording?: RecordingContext;
   request: string;
   kit_id: string;
   recent_history: HistoryEntry[];
-} | { request: string };
+} | { request: string; recording?: never };
 type CommandOptions = {
   initialState: PatternState;
   request: string;
   decideNode: (questionId: RequestQuestionId, state: RequestContext) => Promise<NodeDecision>;
   editPattern?: () => Promise<PatternRunResult>;
+  recording?: RecordingContext;
+  recordedRhythm?: () => Promise<CommandResult>;
   grooveRequest?: (route: RootRoute) => Promise<import("./request-runner.js").TreeResult>;
 };
 type BranchContext = {
@@ -38,6 +47,7 @@ type BranchContext = {
   ask: (questionId: RequestQuestionId) => Promise<NodeOutcome>;
   editPattern: CommandOptions["editPattern"];
   grooveRequest: CommandOptions["grooveRequest"];
+  recordedRhythm: CommandOptions["recordedRhythm"];
 };
 export type RouteDecision = NodeDecision & {
   node_id: RequestQuestionId;
@@ -75,6 +85,7 @@ export const REQUEST_TREE = {
   root: {
     id: "root" as const,
     children: {
+      recorded_rhythm: { description: "insert a recorded beatbox demonstration; speech-only instructions use the other categories", execute: recordedRhythmBranch },
       fill_rhythm: { description: "fill regular quarter, eighth or sixteenth notes for one drum across requested beats or bars, including repeating the latest rhythm fill on more beats", execute: (context: BranchContext) => grooveBranch(context, "fill_rhythm") },
       edit_pattern: {
         description: "edit drum notes, rhythms, velocities, or phrase length",
@@ -126,6 +137,11 @@ export function nodeOutcome(questionId: RequestQuestionId, answers: NodeAnswer):
   return { handler: "change_kit", selection: answer.choice };
 }
 
+function recordedRhythmBranch({ recordedRhythm }: BranchContext): Promise<CommandResult> {
+  if (!recordedRhythm) throw new Error("Hold the record button to demonstrate a rhythm first.");
+  return recordedRhythm();
+}
+
 function editPatternBranch(context: BranchContext): Promise<PatternRunResult | CommandResult> {
   if (context.grooveRequest) return grooveBranch(context, "edit_pattern");
   const { editPattern } = context;
@@ -145,7 +161,7 @@ async function grooveBranch(context: BranchContext, category: RequestBranchId): 
 }
 
 export type RootRoute = { category: RequestBranchId; next_node: string | null; message: string | null };
-const nextNodes: Record<RequestBranchId, string | null> = { fill_rhythm: "rhythm_fill", change_swing: "change_swing", edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
+const nextNodes: Record<RequestBranchId, string | null> = { recorded_rhythm: "recorded_rhythm", fill_rhythm: "rhythm_fill", change_swing: "change_swing", edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
 export const REQUEST_CATEGORIES = Object.freeze(Object.fromEntries(Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { description: branch.description, next_node: nextNodes[id as RequestBranchId] }])));
 export const unsupportedMessage = unsupportedGuidance;
 export function resolveRoot(category: string): RootRoute {
@@ -205,13 +221,13 @@ export function changeKit(initialState: PatternState, kitId: string, request: st
   };
 }
 
-export async function runPatternCommand({ initialState, request, decideNode, editPattern, grooveRequest }: CommandOptions): Promise<CommandResult> {
+export async function runPatternCommand({ initialState, request, decideNode, editPattern, grooveRequest, recording, recordedRhythm }: CommandOptions): Promise<CommandResult> {
   const state = createPatternState(initialState);
   const routing: RouteDecision[] = [];
   const ask = async (questionId: RequestQuestionId): Promise<NodeOutcome> => {
     const sentState = questionId === "change_swing"
       ? { request }
-      : { request, kit_id: state.pattern.kit_id, recent_history: state.recent_history };
+      : { ...(questionId === "root" && recording ? { recording } : {}), request, kit_id: state.pattern.kit_id, recent_history: state.recent_history };
     const decision = await decideNode(questionId, sentState);
     const outcome = nodeOutcome(questionId, decision.answers);
     routing.push({ node_id: questionId, sent_state: sentState, ...decision, outcome });
@@ -221,7 +237,7 @@ export async function runPatternCommand({ initialState, request, decideNode, edi
   const route = await ask(REQUEST_TREE.root.id);
   if (!("next_node" in route)) throw new Error("Invalid root decision.");
   const branch = REQUEST_TREE.root.children[route.next_node];
-  const completed = await branch.execute({ state, request, ask, editPattern, grooveRequest });
+  const completed = await branch.execute({ state, request, ask, editPattern, grooveRequest, recordedRhythm });
 
   const usage: Record<string, number> = { ...completed.usage };
   let latencyMs = completed.latency_ms ?? 0;

@@ -1,8 +1,17 @@
+import { createRecorder } from "./capture.js";
+import { analyzeTake } from "../../core/recording/analysis.js";
+import { encodeWav } from "../../core/recording/capture.js";
+import type { RecordedTake } from "../../core/recording/capture.js";
+import { prepareEvidence, validateRecordingDecision } from "../../core/recording/decision.js";
+import type { RecordingEvidence, RecordingDecision } from "../../core/recording/decision.js";
+import { mapRecording, applyRecording, recordingDelta, recordingStateKey, assertRecordingCurrent } from "../../core/recording/rhythm.js";
+import type { Transcript } from "../../services/transcription.js";
+import type { JevAnswers } from "../../core/pattern/state.js";
 import type { Pattern, PatternState } from "../../core/pattern/state.js";
 import type { PatternPlan } from "../../core/pattern/runner.js";
 import type { CommandResult } from "../../core/pattern/request-tree.js";
 
-import { appendHistory, createPatternState, INSTRUMENTS } from "../../core/pattern/state.js";
+import { appendHistory, createPatternState, stateForJev, INSTRUMENTS } from "../../core/pattern/state.js";
 import { createPatternPlayer } from "./audio.js";
 import { runPatternRequest } from "../../core/pattern/runner.js";
 import { KITS, getKit } from "../../core/pattern/kits.js";
@@ -10,7 +19,6 @@ import { recordUndoUnit, undoLastChange } from "../../core/pattern/undo.js";
 import { runPatternCommand, changeKit } from "../../core/pattern/request-tree.js";
 import { createIdleSubmit } from "../shared/idle-submit.js";
 import { runPatternTree } from "../../core/pattern/request-runner.js";
-import { stateForJev } from "../../core/pattern/state.js";
 import { swungTick } from "../../core/pattern/swing.js";
 import { ticksPerBar } from "../../core/pattern/musical-time.js";
 
@@ -20,6 +28,20 @@ type Decide = <T>(url: string, payload: unknown) => Promise<T>;
 
 interface Elements {
   "tempo": HTMLInputElement;
+  "record": HTMLButtonElement;
+  "record-cancel": HTMLButtonElement;
+  "record-status": HTMLElement;
+  "input-offset": HTMLInputElement;
+  "take-controls": HTMLElement;
+  "take-diagnostic": HTMLElement;
+  "take-start": HTMLInputElement;
+  "take-tempo": HTMLInputElement;
+  "take-rotation": HTMLInputElement;
+  "take-half": HTMLButtonElement;
+  "take-double": HTMLButtonElement;
+  "take-apply": HTMLButtonElement;
+  "take-retry": HTMLButtonElement;
+  "take-export": HTMLButtonElement;
   "play": HTMLButtonElement;
   "stop": HTMLButtonElement;
   "phrase-bars": HTMLElement;
@@ -59,8 +81,12 @@ function $<K extends keyof Elements>(id: K): Elements[K] {
 const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
 let state = createPatternState();
 let pendingState: PatternState | null = null;
+let pendingBoundary: "beat" | "phrase" = "phrase";
 let logs: RequestLog[] = [];
 let busy = false;
+let captureStatus: "idle" | "initializing" | "recording" = "idle";
+let recordProcessing = false;
+let takeMemory: { take: RecordedTake; before: PatternState; evidence?: RecordingEvidence; decision?: RecordingDecision; transcript?: Transcript; appliedPattern?: string; diagnostic?: unknown; error?: string; routing?: unknown[]; release_ms: number } | null = null;
 let startingPlayback = false;
 let operationVersion = 0;
 let requestAbort: AbortController | null = null;
@@ -72,6 +98,8 @@ for (const kit of KITS) {
 }
 
 function cancelWork() {
+  recorder.cancel();
+  recordProcessing = false;
   operationVersion++;
   requestAbort?.abort();
   requestAbort = null;
@@ -157,7 +185,7 @@ function renderGrid() {
     container.append(section);
   }
   $("note-count").textContent = `${pattern.notes.length} note${pattern.notes.length === 1 ? "" : "s"}`;
-  $("pattern-heading").textContent = `${pendingState ? "Next-phrase" : pattern.bars === 1 ? "One-bar" : `${pattern.bars}-bar`} pattern`;
+  $("pattern-heading").textContent = `${pendingState ? `Next-${pendingBoundary}` : pattern.bars === 1 ? "One-bar" : `${pattern.bars}-bar`} pattern`;
   $("phrase-bars").textContent = `${pattern.bars} ${pattern.bars === 1 ? "bar" : "bars"}`;
   $("phrase-steps").textContent = `${pattern.meter.numerator}/${pattern.meter.denominator}`;
   $("tempo").value = String(displayedState().tempo_bpm);
@@ -193,6 +221,7 @@ function renderHistory() {
 }
 
 function describeChange(change: CommandResult["result"]["applied_changes"][number]) {
+  if (change.kind === "tempo") return `Tempo: ${change.before_bpm} → ${change.after_bpm} BPM`;
   if (change.kind === "undo") return `Undid: ${change.request}`;
   if (change.kind === "swing") return `Swing: ${change.before_swing}% → ${change.after_swing}%`;
   if (change.kind === "kit") return `Changed kit: ${getKit(change.before_kit!).name} → ${getKit(change.after_kit!).name}`;
@@ -244,7 +273,22 @@ function renderInspector(log: RequestLog | null | undefined) {
 
 function updateControls() {
   const pending = pendingState !== null;
-  const locked = busy || pending || startingPlayback;
+  const recording = captureStatus !== "idle";
+  const locked = busy || pending || startingPlayback || recording;
+  $("new-session").disabled = locked;
+  $("record").disabled = busy || pending || startingPlayback;
+  $("record").textContent = captureStatus === "recording" ? "Recording… release to finish" : captureStatus === "initializing" ? "Preparing microphone…" : "Hold to record";
+  $("record").setAttribute("aria-pressed", String(captureStatus === "recording"));
+  $("record-cancel").hidden = !recording && !recordProcessing;
+  $("input-offset").disabled = locked;
+  $("take-controls").hidden = !takeMemory;
+  const canUseTake = takeMemory && recordingStateKey(state) === (takeMemory.appliedPattern ?? recordingStateKey(takeMemory.before));
+  for (const id of ["take-start", "take-tempo", "take-rotation", "take-half", "take-double", "take-apply"] as const) $(id).disabled = locked || !canUseTake;
+  $("take-export").disabled = !takeMemory || recording;
+  $("take-apply").disabled ||= !takeMemory?.decision || takeMemory.decision.mode === "edit";
+  $("take-retry").disabled = locked || !takeMemory || !!takeMemory.appliedPattern;
+  const fixedTempo = takeMemory?.take.transport.playing || takeMemory?.decision?.mode === "add";
+  if (fixedTempo) for (const id of ["take-tempo", "take-half", "take-double"] as const) $(id).disabled = true;
   $("tempo").disabled = locked;
   $("undo").disabled = locked || state.undo_history.length === 0;
   $("kit").disabled = locked;
@@ -259,8 +303,9 @@ function updateControls() {
   $("request").disabled = locked;
   $("clear").disabled = locked || displayedState().pattern.notes.length === 0;
   $("pending").hidden = !pending;
+  $("pending").textContent = `Applies next ${pendingBoundary}`;
   $("play").disabled = player.isPlaying() || locked;
-  $("stop").disabled = !player.isPlaying() && !busy && !startingPlayback;
+  $("stop").disabled = recording || recordProcessing || (!player.isPlaying() && !busy && !startingPlayback);
 }
 
 function render() {
@@ -287,11 +332,12 @@ async function startPlayback(pattern: Pattern) {
   }
 }
 
-async function commitOrStage(nextState: PatternState, autoPlay = true) {
+async function commitOrStage(nextState: PatternState, autoPlay = true, boundary: "beat" | "phrase" = "phrase") {
   if (player.isPlaying()) {
     pendingState = nextState;
-    await player.stage(nextState.pattern, nextState.tempo_bpm);
-    $("request-status").textContent = "Accepted changes are waiting for the next phrase.";
+    updateControls();
+    pendingBoundary = await player.stage(nextState.pattern, nextState.tempo_bpm, boundary) ?? "phrase";
+    $("request-status").textContent = `Accepted changes are waiting for the next ${pendingBoundary}.`;
   } else {
     state = nextState;
     $("request-status").textContent = "Changes applied.";
@@ -302,7 +348,7 @@ async function commitOrStage(nextState: PatternState, autoPlay = true) {
 }
 
 async function performRequest(request: string, run: (decide: Decide) => Promise<CommandResult>, local = false) {
-  if (busy || pendingState || startingPlayback) return;
+  if (busy || pendingState || startingPlayback || captureStatus !== "idle") return;
   idleSubmit.cancel();
   busy = true;
   const version = ++operationVersion;
@@ -339,7 +385,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
         player.stop();
         $("playback-status").textContent = "Stopped";
       }
-      await commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo" && change.kind !== "swing"));
+      await commitOrStage(completed.state, completed.result.applied_changes.some(change => change.kind !== "kit" && change.kind !== "undo" && change.kind !== "swing"), !(recordProcessing && takeMemory?.decision?.mode === "replace") && completed.result.applied_changes.every(change => ["add", "modify", "remove"].includes(change.kind)) ? "beat" : "phrase");
     }
     else {
       state = completed.state;
@@ -348,7 +394,16 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
       persist();
     }
   } catch (error) {
-    if (version === operationVersion) $("request-status").textContent = (error instanceof Error ? error.message : String(error));
+    if (version === operationVersion) {
+      const message = error instanceof Error ? error.message : String(error);
+      $("request-status").textContent = message;
+      if (recordProcessing && takeMemory) {
+        takeMemory.error = message;
+        const log = { request: "Recorded rhythm failed", message, local: false };
+        logs = [...logs, log].slice(-50);
+        renderInspector(log); renderHistory(); renderTakeDiagnostics();
+      }
+    }
   } finally {
     if (version === operationVersion) {
       busy = false;
@@ -359,14 +414,26 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
   }
 }
 
-$("request-form").addEventListener("submit", event => {
-  event.preventDefault();
-  const request = $("request").value.trim();
-  if (!request) return;
-  void performRequest(request, decide => runPatternCommand({
+function editRequest(request: string, decide: Decide) {
+  let plannedOperationCount = 0;
+  return runPatternRequest({
     initialState: state,
     request,
-    grooveRequest: route => runPatternTree({
+    maxPasses: 8,
+    estimateOperations: async sentState => {
+      const data = await decide<PatternPlan>("/api/pattern-plan", { state: sentState });
+      plannedOperationCount = data.operation_count;
+      return data;
+    },
+    decide: (sentState, pass, plan) => {
+      $("request-status").textContent = `Jev is considering edit ${pass} of ${plannedOperationCount}…`;
+      return decide("/api/pattern-decision", { state: sentState, instruments: plan.relevant_instruments });
+    },
+  });
+}
+
+function grooveHandler(request: string, decide: Decide) {
+  return (route: Parameters<NonNullable<Parameters<typeof runPatternCommand>[0]["grooveRequest"]>>[0]) => runPatternTree({
       state, request, route: async () => ({ route }),
       searchPresets: request => decide("/api/preset-search", { request }),
       selectPreset: (request, candidate_ids) => decide("/api/preset-select", { request, candidate_ids }),
@@ -377,29 +444,176 @@ $("request-form").addEventListener("submit", event => {
         estimateOperations: sentState => decide("/api/pattern-plan", { state: sentState }),
         decide: (sentState, _pass, plan) => decide("/api/pattern-decision", { state: sentState, instruments: plan.relevant_instruments }),
       }),
-    }),
+    });
+}
+
+function commandForRequest(request: string, decide: Decide) {
+  return runPatternCommand({
+    initialState: state,
+    request,
+    grooveRequest: grooveHandler(request, decide),
     decideNode: (nodeId, sentState) => {
       $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : nodeId === "change_swing" ? "Jev is adjusting swing…" : "Jev is selecting a kit…";
       return decide("/api/request-decision", { node_id: nodeId, state: sentState });
     },
-    editPattern: () => {
-      let plannedOperationCount = 0;
-      return runPatternRequest({
-        initialState: state,
-        request,
-        maxPasses: 8,
-        estimateOperations: async sentState => {
-          const data = await decide<PatternPlan>("/api/pattern-plan", { state: sentState });
-          plannedOperationCount = data.operation_count;
-          return data;
-        },
-        decide: (sentState, pass, plan) => {
-          $("request-status").textContent = `Jev is considering edit ${pass} of ${plannedOperationCount}…`;
-          return decide("/api/pattern-decision", { state: sentState, instruments: plan.relevant_instruments });
-        },
-      });
-    },
-  }));
+    editPattern: () => editRequest(request, decide),
+  });
+}
+
+$("request-form").addEventListener("submit", event => {
+  event.preventDefault();
+  const request = $("request").value.trim();
+  if (request) void performRequest(request, decide => commandForRequest(request, decide));
+});
+
+const recorder = createRecorder({
+  context: () => player.captureContext(),
+  snapshot: () => player.snapshot(state.pattern, Number($("input-offset").value) || 0, state.tempo_bpm),
+  onStatus: status => {
+    captureStatus = status;
+    if (status !== "idle") $("record-status").textContent = status === "initializing" ? "Preparing microphone — keep holding, wait to start." : "Recording now. Demonstrate your beat, then release.";
+    updateControls();
+  },
+  onError: message => { $("record-status").textContent = message; },
+  onTake: take => {
+    takeMemory = { take, before: createPatternState(state), release_ms: take.release_performance_ms };
+    $("take-start").value = "0"; $("take-tempo").value = String(state.tempo_bpm); $("take-rotation").value = "0";
+    renderTakeDiagnostics();
+    void processTake();
+  },
+});
+function renderTakeDiagnostics() {
+  if (!takeMemory) { $("take-diagnostic").textContent = "No retained take."; return; }
+  const { take, before, appliedPattern, release_ms, ...details } = takeMemory;
+  $("take-diagnostic").textContent = JSON.stringify({
+    take_id: take.id, duration_seconds: take.samples.length / take.sample_rate,
+    sample_rate: take.sample_rate, transport: take.transport, ...details,
+  }, null, 2);
+}
+function cancelRecording() {
+  recorder.cancel();
+  if (recordProcessing) { operationVersion++; requestAbort?.abort(); requestAbort = null; busy = false; recordProcessing = false; }
+  $("record-status").textContent = "Recording request canceled.";
+  updateControls();
+}
+function mappedTake(memory: NonNullable<typeof takeMemory>, manual: boolean): CommandResult {
+  const { take, evidence, decision } = memory;
+  if (!evidence || !decision || decision.mode === "edit") throw new Error("No recorded rhythm to apply.");
+  assertRecordingCurrent(state, memory.before, memory.appliedPattern);
+  if (!manual && decision.span === "unresolved") throw new Error("Choose the demonstration start below, then apply the take.");
+  const span = evidence.spans.find(item => item.id === decision.span) ?? evidence.spans[0];
+  const timingIndex = Number(decision.timing.replace("timing_", ""));
+  const tempo = (span.tempos[timingIndex] ?? span.tempos[0]).tempo_bpm;
+  if (!manual) { $("take-start").value = String(span.start_seconds); $("take-tempo").value = String(tempo); }
+  const mapped = mapRecording({ hits: evidence.hits, start_context_seconds: take.start_context_seconds, transport: take.transport,
+    mode: decision.mode, instrument: decision.instrument, start_seconds: Number($("take-start").value), tempo_bpm: Number($("take-tempo").value), rotation_slots: Number($("take-rotation").value) });
+  const result = applyRecording(memory.before, mapped, take.id, memory.transcript?.text.trim().slice(0, 500) || "Recorded rhythm");
+  // Manual adjustments replace this take against its original base, while preserving session history and undo ownership.
+  result.result.applied_changes = recordingDelta(state.pattern, result.state.pattern, state.tempo_bpm, result.state.tempo_bpm);
+  result.state.next_note_id = Math.max(result.state.next_note_id, state.next_note_id);
+  result.state.undo_history = state.undo_history;
+  result.state.recent_history = [...state.recent_history, result.result.history_entry].slice(-8);
+  memory.diagnostic = { evidence, decision, mapped };
+  $("record-status").textContent = span.tempos[0].uncertain ? "Tempo is uncertain. Check playback and adjust tempo if needed." : "Take mapped. Adjust tempo, start, or rotation below.";
+  return result;
+}
+async function processTake(manual = false) {
+  const memory = takeMemory;
+  if (!memory) return;
+  const blocked = busy || pendingState || startingPlayback || captureStatus !== "idle";
+  if (blocked) {
+    memory.error = "Recording saved. Wait for the current action to finish, then click Retry take.";
+    $("record-status").textContent = memory.error;
+    renderTakeDiagnostics();
+    updateControls();
+    return;
+  }
+  recordProcessing = true;
+  memory.error = undefined;
+  memory.routing = [];
+  if (!manual) memory.decision = undefined;
+  const acceptedBefore = operationVersion;
+  let completedPattern: string | undefined;
+  await performRequest("Recorded rhythm", async decide => {
+    const signal = requestAbort!.signal;
+    if (manual) {
+      const result = mappedTake(memory, true); completedPattern = recordingStateKey(result.state); return result;
+    }
+    $("record-status").textContent = "Analyzing and transcribing…";
+    const hits = analyzeTake(memory.take.samples, memory.take.sample_rate);
+    memory.diagnostic = { detected_hits: hits };
+    renderTakeDiagnostics();
+    if (!memory.transcript) {
+      const response = await fetch("/api/transcribe", { method: "POST", signal, headers: { "Content-Type": "audio/wav" }, body: encodeWav(memory.take.samples, memory.take.sample_rate) });
+      const data = await response.json();
+      signal.throwIfAborted();
+      if (!response.ok) throw new Error(data.error ?? "Transcription failed.");
+      memory.transcript = data as Transcript;
+    }
+    memory.evidence = prepareEvidence(memory.transcript, hits, memory.take.transport.tempo_bpm);
+    renderTakeDiagnostics();
+    const request = memory.transcript.text.trim().slice(0, 500) || "Recorded beatbox demonstration";
+    const completed = await runPatternCommand({ initialState: state, request,
+      recording: {
+        transcript: memory.transcript.text, hit_count: hits.length,
+        hit_onsets_seconds: hits.map(hit => Number(hit.onset_seconds.toFixed(3))),
+        words: memory.transcript.words.slice(-32),
+      },
+      grooveRequest: grooveHandler(request, decide),
+      decideNode: async (nodeId, sentState) => {
+        const decision = await decide<import("../../core/pattern/request-tree.js").NodeDecision>("/api/request-decision", { node_id: nodeId, state: sentState });
+        memory.routing?.push({ node_id: nodeId, sent_state: sentState, ...decision });
+        renderTakeDiagnostics();
+        return decision;
+      },
+      editPattern: () => editRequest(request, decide),
+      recordedRhythm: async () => {
+        const response = await decide<{ answers: JevAnswers; model: string; usage: Record<string, number>; latency_ms: number; question_count: number }>("/api/recording-decision", { state: { evidence: memory.evidence, pattern_state: stateForJev(state, request), playback: memory.take.transport } });
+        memory.decision = validateRecordingDecision(memory.evidence!, response.answers);
+        renderTakeDiagnostics();
+        if (memory.decision.mode === "edit") return editRequest(request, decide);
+        const result = mappedTake(memory, false);
+        return { ...result, model: response.model, usage: response.usage, latency_ms: response.latency_ms, question_count: response.question_count };
+      },
+    });
+    if (memory.decision && memory.decision.mode !== "edit") completedPattern = recordingStateKey(completed.state);
+    return completed;
+  }, manual);
+  if (operationVersion === acceptedBefore + 1) {
+    if (completedPattern && recordingStateKey(displayedState()) === completedPattern) {
+      memory.appliedPattern = completedPattern;
+      $("record-status").textContent += ` Release to result: ${Math.round(performance.now() - memory.release_ms)} ms.`;
+    } else $("record-status").textContent = $("request-status").textContent;
+    recordProcessing = false;
+    renderTakeDiagnostics();
+    updateControls();
+  }
+}
+$("record").addEventListener("pointerdown", event => {
+  if (event.button !== 0 || $("record").disabled) return;
+  event.preventDefault(); idleSubmit.cancel(); $("record").setPointerCapture(event.pointerId); void recorder.start();
+});
+$("record").addEventListener("pointerup", () => recorder.release());
+$("record").addEventListener("pointercancel", cancelRecording);
+$("record").addEventListener("lostpointercapture", () => { if (captureStatus !== "idle") recorder.release(); });
+$("record").addEventListener("keydown", event => {
+  if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); idleSubmit.cancel(); void recorder.start(); }
+});
+$("record").addEventListener("keyup", event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); recorder.release(); } });
+$("record").addEventListener("blur", () => { if (captureStatus !== "idle") cancelRecording(); });
+$("record").addEventListener("contextmenu", event => event.preventDefault());
+document.addEventListener("keydown", event => { if (event.key === "Escape" && (captureStatus !== "idle" || recordProcessing)) cancelRecording(); });
+window.addEventListener("blur", () => { if (captureStatus !== "idle") cancelRecording(); });
+$("record-cancel").addEventListener("click", cancelRecording);
+$("take-retry").addEventListener("click", () => { if (takeMemory) takeMemory.release_ms = performance.now(); void processTake(); });
+$("take-apply").addEventListener("click", () => { if (takeMemory) takeMemory.release_ms = performance.now(); void processTake(true); });
+$("take-half").addEventListener("click", () => { $("take-tempo").value = String(Math.max(30, Number($("take-tempo").value) / 2)); });
+$("take-double").addEventListener("click", () => { $("take-tempo").value = String(Math.min(360, Number($("take-tempo").value) * 2)); });
+$("take-export").addEventListener("click", () => {
+  if (!takeMemory) return;
+  const { take, ...diagnostic } = takeMemory;
+  const files: [string, Blob][] = [["take.wav", new Blob([encodeWav(take.samples, take.sample_rate)], { type: "audio/wav" })], ["take.json", new Blob([JSON.stringify({ ...diagnostic, take: { ...take, samples: undefined } }, null, 2)], { type: "application/json" })]];
+  for (const [name, blob] of files) { const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 });
 
 $("kit").addEventListener("change", event => {
@@ -410,7 +624,18 @@ $("kit").addEventListener("change", event => {
 
 $("tempo").addEventListener("change", () => {
   const value = Math.round(Number($("tempo").value));
-  state = { ...state, tempo_bpm: Math.min(240, Math.max(40, Number.isFinite(value) ? value : 120)) };
+  const next = { ...state, tempo_bpm: Math.min(240, Math.max(40, Number.isFinite(value) ? value : 120)) };
+  if (player.isPlaying()) {
+    // Keep the recording snapshot on the audible tempo and lock capture until
+    // the phrase-boundary swap commits the new state.
+    void commitOrStage(next, false).catch(error => {
+      pendingState = null;
+      $("request-status").textContent = error instanceof Error ? error.message : String(error);
+      render();
+    });
+    return;
+  }
+  state = next;
   player.setTempo(state.tempo_bpm);
   render();
   persist();
@@ -467,6 +692,7 @@ $("clear").addEventListener("click", () => {
 $("new-session").addEventListener("click", () => {
   cancelWork();
   state = createPatternState();
+  takeMemory = null;
   $("request").value = "";
   pendingState = null;
   logs = [];

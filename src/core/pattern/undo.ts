@@ -10,7 +10,7 @@ export function recordUndoUnit<T extends Completed>(before: PatternState, comple
     || (JSON.stringify(before.pattern) === JSON.stringify(completed.state.pattern) && before.tempo_bpm === completed.state.tempo_bpm && JSON.stringify(before.preset_context) === JSON.stringify(completed.state.preset_context))) return completed;
   return { ...completed, state: { ...completed.state, undo_history: [
     ...(before.undo_history ?? []),
-    { request, pattern: clone(before.pattern), tempo_bpm: before.tempo_bpm, ...(before.preset_context ? { preset_context: clone(before.preset_context) } : {}) },
+    { request, pattern: clone(before.pattern), tempo_bpm: before.tempo_bpm, ...(before.recent_take ? { recent_take: clone(before.recent_take) } : {}), ...(before.preset_context ? { preset_context: clone(before.preset_context) } : {}) },
   ].slice(-MAX_UNDO_HISTORY) } };
 }
 
@@ -22,6 +22,7 @@ export function undoLastChange(initialState: PatternState, request = "Undo") {
   const restored = unit ? {
     ...state,
     pattern: clone(unit.pattern),
+    recent_take: unit.recent_take ? clone(unit.recent_take) : undefined,
     tempo_bpm: unit.tempo_bpm ?? state.tempo_bpm,
     preset_context: unit.preset_context ? clone(unit.preset_context) : null,
     undo_history: state.undo_history.slice(0, -1),

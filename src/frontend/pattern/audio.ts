@@ -18,8 +18,11 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
   let playing = false;
   let activePattern: PlaybackPattern = { bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [] };
   let pendingPattern: PlaybackPattern | null = null;
+  let audibleSwap: { pattern: PlaybackPattern; time: number } | null = null;
   let activeBpm = 120;
   let pendingBpm: number | null = null;
+  let pendingBoundaryTime: number | null = null;
+  let pendingBoundary: "beat" | "phrase" = "phrase";
   let originTime = 0;
   let scheduledThrough = 0;
   let startVersion = 0;
@@ -118,19 +121,25 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
 
   function tick() {
     if (!playing) return;
+    if (audibleSwap && context.currentTime >= audibleSwap.time) {
+      const accepted = audibleSwap.pattern;
+      audibleSwap = null;
+      onSwap(clone(accepted));
+    }
     const horizon = context.currentTime + LOOKAHEAD_SECONDS;
     const phraseSeconds = patternDurationSeconds(activePattern, activeBpm);
     const completedPhrases = Math.floor(Math.max(0, scheduledThrough - originTime) / phraseSeconds);
-    const boundaryTime = originTime + (completedPhrases + 1) * phraseSeconds;
-    const window = splitPatternWindow({ activePattern, activeBpm, pendingPattern, pendingBpm, fromTime: scheduledThrough, toTime: horizon, originTime, boundaryTime });
+    const boundaryTime = pendingBoundaryTime ?? originTime + (completedPhrases + 1) * phraseSeconds;
+    const window = splitPatternWindow({ activePattern, activeBpm, pendingPattern, pendingBpm, fromTime: scheduledThrough, toTime: horizon, originTime, boundaryTime, preservePhase: pendingBoundary === "beat" });
     window.events.forEach(scheduleHit);
     activePattern = window.activePattern;
     activeBpm = window.activeBpm;
     pendingPattern = window.pendingPattern;
     pendingBpm = window.pendingBpm;
     if (window.didSwap) {
-      originTime = boundaryTime;
-      onSwap(clone(activePattern));
+      if (pendingBoundary === "phrase") originTime = boundaryTime;
+      pendingBoundaryTime = null;
+      audibleSwap = { pattern: clone(activePattern), time: boundaryTime + (context.outputLatency ?? 0) + (context.baseLatency ?? 0) };
     }
     scheduledThrough = Math.max(scheduledThrough, horizon);
   }
@@ -168,6 +177,9 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     startVersion++;
     pendingPattern = null;
     pendingBpm = null;
+    pendingBoundaryTime = null;
+    pendingBoundary = "phrase";
+    audibleSwap = null;
     playing = false;
     if (timer) window.clearInterval(timer);
     timer = null;
@@ -178,19 +190,31 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     openHatSources.clear();
   }
 
-  async function stage(pattern: PlaybackPattern, bpm = activeBpm) {
+  function nextBoundaryTime(boundary: "beat" | "phrase") {
+    const interval = boundary === "beat" ? 60 / activeBpm * 4 / activePattern.meter.denominator : patternDurationSeconds(activePattern, activeBpm);
+    return originTime + (Math.floor(Math.max(0, Math.max(context.currentTime, scheduledThrough) - originTime) / interval) + 1) * interval;
+  }
+
+  async function stage(pattern: PlaybackPattern, bpm = activeBpm, boundary: "beat" | "phrase" = "phrase") {
     const update = { bpm };
     loadingUpdate = update;
     try {
       if (playing) await load(pattern);
       if (loadingUpdate !== update) return;
       if (playing) {
+        // Mid-phrase edits must retain the existing timeline and sounds.
+        pendingBoundary = boundary === "beat" && update.bpm === activeBpm
+          && pattern.bars === activePattern.bars && pattern.meter.numerator === activePattern.meter.numerator
+          && pattern.meter.denominator === activePattern.meter.denominator
+          && pattern.kit_id === activePattern.kit_id && pattern.swing_percent === activePattern.swing_percent ? "beat" : "phrase";
+        pendingBoundaryTime = nextBoundaryTime(pendingBoundary);
         pendingPattern = clone(pattern);
         pendingBpm = update.bpm;
       } else {
         activePattern = clone(pattern);
         activeBpm = update.bpm;
       }
+      return pendingBoundary;
     } finally {
       if (loadingUpdate === update) loadingUpdate = null;
     }
@@ -201,6 +225,8 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     if (playing) {
       pendingPattern ??= clone(activePattern);
       pendingBpm = bpm;
+      pendingBoundary = "phrase";
+      pendingBoundaryTime = nextBoundaryTime("phrase");
     } else activeBpm = bpm;
   }
 
@@ -210,6 +236,18 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
   }
 
   return {
+    async captureContext() { await unlock(); return context; },
+    snapshot(pattern: PlaybackPattern, inputCorrectionMs: number, bpm = activeBpm) {
+      ensureContext();
+      const clock = context.getOutputTimestamp?.();
+      const outputLatency = clock?.performanceTime && typeof clock.contextTime === "number" && clock.contextTime > 0
+        ? Math.max(0, context.currentTime - (clock.contextTime + (performance.now() - clock.performanceTime) / 1000))
+        : (context.outputLatency ?? 0) + (context.baseLatency ?? 0);
+      return { playing, tempo_bpm: bpm, bars: pattern.bars, meter: { ...pattern.meter }, origin_context_seconds: originTime,
+        captured_context_seconds: context.currentTime, output_latency_seconds: outputLatency,
+        output_context_seconds: clock?.contextTime ?? context.currentTime - outputLatency,
+        output_performance_ms: clock?.performanceTime ?? performance.now(), input_correction_ms: inputCorrectionMs };
+    },
     load,
     unlock,
     start,
@@ -218,6 +256,6 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     setTempo,
     setVolume,
     isPlaying: () => playing,
-    hasPendingPattern: () => pendingPattern !== null,
+    hasPendingPattern: () => pendingPattern !== null || audibleSwap !== null,
   };
 }

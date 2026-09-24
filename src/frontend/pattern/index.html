@@ -29,8 +29,22 @@
       <div class="section-heading"><div><span class="eyebrow">YOUR DIRECTION</span><h2 id="prompt-heading">What should the drums do next?</h2></div><span id="pending" class="pending" hidden>Applies next phrase</span></div>
       <form id="request-form">
         <label for="request">Request</label>
-        <div class="prompt-row"><textarea id="request" maxlength="500" rows="2" placeholder="Try: Give me a simple backbeat" required></textarea><button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Ask Jev (⌘ Enter)">Ask Jev</button></div>
+        <div class="prompt-row"><textarea id="request" maxlength="500" rows="2" placeholder="Try: Give me a simple backbeat" required></textarea><button id="record" type="button" aria-pressed="false">Hold to record</button><button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Ask Jev (⌘ Enter)">Ask Jev</button></div>
       </form>
+      <div class="recording-tools">
+        <span id="record-status" role="status">Use wired headphones. Hold, speak or beatbox, then release. Maximum 30 seconds.</span>
+        <button id="record-cancel" type="button" hidden>Cancel recording</button>
+        <label>Input timing correction (ms) <input id="input-offset" type="number" min="-500" max="500" step="5" value="0"></label>
+        <small>Positive correction moves captured hits earlier. Escape cancels.</small>
+      </div>
+      <div id="take-controls" class="recording-tools" hidden>
+        <label>Demonstration start (seconds) <input id="take-start" type="number" min="0" max="30" step="0.01" value="0"></label>
+        <label>Take tempo (BPM) <input id="take-tempo" type="number" min="30" max="360" step="0.5" value="120"></label>
+        <button id="take-half" type="button">Half tempo</button><button id="take-double" type="button">Double tempo</button>
+        <label>Bar-start rotation (sixteenths) <input id="take-rotation" type="number" min="-63" max="63" step="1" value="0"></label>
+        <button id="take-apply" type="button">Apply adjustment</button><button id="take-retry" type="button">Retry take</button><button id="take-export" type="button">Export diagnostic WAV + JSON</button>
+        <details><summary>Latest take: transcript, detected hits, and decisions</summary><pre id="take-diagnostic">No retained take.</pre></details>
+      </div>
       <label class="auto-submit"><input id="auto-submit" type="checkbox" checked> Auto-submit after 0.3 seconds without new text</label>
         <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a little swing</button><button type="button">Swing it harder</button><button type="button">Make the snare louder</button></div>
       <div class="request-status"><span id="request-status" role="status">Ready for your first request. Press ⌘ Enter to send.</span><span id="request-meta">No API call yet</span></div>

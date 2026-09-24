@@ -2,8 +2,10 @@ import { SWING_CHOICES } from "../core/pattern/swing.js";
 import { KITS } from "../core/pattern/kits.js";
 import { QUESTION_CHOICES, REQUEST_TREE, nodeOutcome } from "../core/pattern/request-tree.js";
 import type { HistoryEntry } from "../core/pattern/state.js";
+import type { RecordingContext } from "../core/pattern/request-tree.js";
 
 export type RequestState = {
+  recording?: RecordingContext;
   request: string;
   kit_id: string;
   recent_history: HistoryEntry[];
@@ -14,10 +16,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function hasKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+function hasKeys(value: unknown, required: readonly string[], optional: readonly string[] = []): value is Record<string, unknown> {
   return isRecord(value)
-    && Object.keys(value).length === keys.length
-    && keys.every(key => Object.hasOwn(value, key));
+    && required.every(key => Object.hasOwn(value, key))
+    && Object.keys(value).every(key => required.includes(key) || optional.includes(key));
 }
 const boundedText = (value: unknown, limit: number): value is string => typeof value === "string" && value.length <= limit;
 const boundedDescriptions = (value: unknown): value is string[] =>
@@ -30,6 +32,35 @@ function validHistoryEntry(value: unknown): value is HistoryEntry {
     && boundedDescriptions(value.rejected_changes);
 }
 
+function boundedNumber(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+}
+
+function validHitOnsets(value: unknown, hitCount: number): boolean {
+  return Array.isArray(value)
+    && value.length === hitCount
+    && value.every((time, index) => boundedNumber(time, 0, 30)
+      && (index === 0 || time >= value[index - 1]));
+}
+
+function validWordTiming(value: unknown): boolean {
+  return hasKeys(value, ["word", "start", "end"])
+    && boundedText(value.word, 200)
+    && boundedNumber(value.start, 0, 30.1)
+    && boundedNumber(value.end, value.start, 30.1);
+}
+
+function validRecordingContext(value: unknown): value is RecordingContext {
+  if (!hasKeys(value, ["transcript", "hit_count"], ["hit_onsets_seconds", "words"])) return false;
+  if (!boundedText(value.transcript, 5000)) return false;
+  if (!boundedNumber(value.hit_count, 0, 256) || !Number.isInteger(value.hit_count)) return false;
+  if (Object.hasOwn(value, "hit_onsets_seconds") && !validHitOnsets(value.hit_onsets_seconds, value.hit_count)) return false;
+  if (Object.hasOwn(value, "words")) {
+    if (!Array.isArray(value.words) || value.words.length > 32 || !value.words.every(validWordTiming)) return false;
+  }
+  return true;
+}
+
 function selectionQuestion(question: string, focus: string, criteria: Record<string, unknown>) {
   return {
     selection: {
@@ -37,7 +68,7 @@ function selectionQuestion(question: string, focus: string, criteria: Record<str
       instructions: {
         question,
         focus,
-        inspect: ["request", "kit_id", "recent_history"],
+        inspect: ["request", "kit_id", "recent_history", "recording"],
         context: "The current request is authoritative. History only resolves references. Never act on an older request instead.",
       },
       criteria,
@@ -53,7 +84,8 @@ function buildRootQuestions() {
     "Clear every note or start empty selects clear_pattern; never generate note-by-note deletions for this.",
     "Another/different beat, 'no, something else', 'try again', and 'shuffle funk' select shuffle_preset.",
     "Requests for regular quarter/eighth/sixteenth notes on one drum select fill_rhythm, including '16ths on the hi-hats', '16th hats on beat 2', and 'do it on beats 2, 3, 4 as well' following a rhythm fill. This takes precedence over edit_pattern. Relative volume changes still select edit_pattern.",
-    "A complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern.",
+    "A speech-only request for a complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern. A request to reproduce an accompanying demonstration selects recorded_rhythm instead of load_preset, even if it begins with give me a beat.",
+    "If recording is present, inspect recording.transcript, recording.words and recording.hit_onsets_seconds together. The transcript can OMIT the entire beatbox demonstration. An introduction such as give me a beat like... followed by a sequence of measured hits selects recorded_rhythm, not a generic preset. Word timestamps are approximate: Whisper can stretch the final word across the demonstration. Pure beatboxing also selects recorded_rhythm. Hit count alone does not establish beatboxing because speech produces transients too. Speech-only instructions such as can you swing it or load a funk beat select their normal branches. Corrections to prior take notes use edit_pattern.",
     "Requests like 'Undo that', 'undo', 'revert the last change' and 'take that back' select undo.",
     "Undo restores the complete latest change locally; never route these to note editing.",
     "Requests to redo, undo several changes at once, or selectively undo an older change are unsupported.",
@@ -114,7 +146,9 @@ export const REQUEST_QUESTIONS = Object.freeze({
 export function validRequestState(state: unknown, nodeId = "root"): state is RequestState {
   if (nodeId === "change_swing") return hasKeys(state, ["request"])
     && boundedText(state.request, 500) && Boolean(state.request.trim());
-  if (!hasKeys(state, ["request", "kit_id", "recent_history"])) return false;
+  if (!hasKeys(state, ["request", "kit_id", "recent_history"], ["recording"])) return false;
+  if (Object.hasOwn(state, "recording") && !validRecordingContext(state.recording)) return false;
+
   if (!boundedText(state.request, 500) || !state.request.trim()) return false;
   if (!KITS.some(kit => kit.id === state.kit_id)) return false;
   return Array.isArray(state.recent_history)

@@ -6,16 +6,16 @@ import type { Answers, Questions } from "./question-types.js";
 
 export function rhythmFillContext(state: PatternJevState) {
   return { request: state.request, bars: state.pattern.bars, meter: state.pattern.meter,
-    previous_change: state.recent_history.at(-1) ?? null };
+    recent_history: state.recent_history.slice(-8) };
 }
 
 export function buildRhythmFillQuestions(state: PatternJevState): Questions {
-  const context = "The current request is authoritative. Use previous_change only to resolve omitted details in references like 'do it as well'. Never copy its instrument when the current request names a different one.";
+  const context = "The current request is authoritative. Use recent_history (oldest to newest) only to resolve omitted details such as 'them', 'those', or 'do it as well'. A failed or unrelated request does not erase the last relevant drum or rhythm. Look back to the latest relevant request and its applied changes. Current explicit details always override history; never copy an old instrument or spacing when the current request names another.";
   const choice = (instructions: string, criteria: Record<string, string>) => ({ type: "choice", instructions: `${instructions} ${context}`, criteria });
   return {
     operation: choice("Does the user want to fill regular quarter, eighth or sixteenth notes for ONE drum? Filling adds missing hits and preserves existing hits. Choose unsupported for removing, replacing, moving, triplets, multiple instruments, mixed actions or unresolved references.", { fill: "Fill regular hits for one drum", unsupported: "Not a supported rhythm fill" }),
-    instrument: choice("Which drum should receive the regular rhythm? Unqualified hats/hi-hats means closed_hat. In a follow-up, inherit the instrument from the most recent change only.", { ...Object.fromEntries(INSTRUMENTS.map(i => [i, i])), unknown: "No identifiable single drum" }),
-    note_value: choice("What note spacing is requested? '16ths' means sixteenths; '8ths' means eighths. For 'do it' follow-ups, inherit the previous change's spacing.", { quarters: "Quarter notes", eighths: "Eighth notes", sixteenths: "Sixteenth notes", unknown: "Unspecified and cannot resolve, or unsupported spacing" }),
+    instrument: choice("Which drum should receive the regular rhythm? Unqualified hats/hi-hats means closed_hat. In a follow-up, resolve the instrument from the latest relevant drum request in recent_history, looking past failed attempts or unrelated kit changes.", { ...Object.fromEntries(INSTRUMENTS.map(i => [i, i])), unknown: "No identifiable single drum" }),
+    note_value: choice("What note spacing is requested? '16ths' means sixteenths; '8ths' means eighths. For 'do it' follow-ups with no explicit spacing, use the latest relevant rhythm in recent_history. Explicit 16ths overrides earlier eighths.", { quarters: "Quarter notes", eighths: "Eighth notes", sixteenths: "Sixteenth notes", unknown: "Unspecified and cannot resolve, or unsupported spacing" }),
     beat_scope: choice("Does the current request restrict numbered beats? 'On beat 2' fills subdivisions throughout beat 2. 'Rest of the bar' means fill all missing positions, so choose all. Without a restriction choose all; do not inherit old beat restrictions.", { all: "All beats / rest of bar", selected: "Explicitly numbered beat(s) or range" }),
     bar_scope: choice("Does the current request restrict numbered bars? Default all. Beat numbers are not bar numbers.", { all: "All existing bars", selected: "Explicit bar numbers" }),
     velocity: choice("How loud should newly added notes be? Default medium. Existing notes keep their velocities.", { soft: "Quiet/soft", medium: "Normal/default", strong: "Loud/strong" }),

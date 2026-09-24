@@ -1,8 +1,9 @@
+import { defaultPitch } from "./drum-pitches.js";
 import { appendHistory, applyPatternAnswers, createPatternState, INSTRUMENTS, MAX_BARS, resizePattern, stateForJev } from "./state.js";
 import type { ApplyPatternResult, HistoryEntry, Instrument, JevAnswers, PatternChange, PatternJevState, PatternState, Candidate } from "./state.js";
 
 export type PatternDecision = { answers: JevAnswers; model?: string; usage?: Record<string, number>; question_count?: number; latency_ms?: number };
-export type PatternPlan = Omit<PatternDecision, "answers"> & { answers?: JevAnswers; operation_count: number; phrase_bars: number; relevant_instruments: Instrument[]; sent_state?: PatternJevState };
+export type PatternPlan = Omit<PatternDecision, "answers"> & { answers?: JevAnswers; recorded_take_instrument?: Instrument; operation_count: number; phrase_bars: number; relevant_instruments: Instrument[]; sent_state?: PatternJevState };
 export type PatternPass = PatternDecision & { pass: number; sent_state: PatternJevState; result: ApplyPatternResult };
 export type PatternRunResult = { state: PatternState; result: ApplyPatternResult & { pass_count?: number; planned_operations?: number }; plan: PatternPlan | null; passes: PatternPass[]; model: string | null; usage: Record<string, number>; question_count: number; latency_ms: number; message?: string | null };
 type RunOptions = { initialState: PatternState; request: string; decide: (state: PatternJevState, pass: number, options: { relevant_instruments: Instrument[] }) => Promise<PatternDecision>; estimateOperations?: (state: PatternJevState) => Promise<PatternPlan>; maxPasses?: number; onPass?: (pass: PatternPass) => void | Promise<void> };
@@ -41,6 +42,29 @@ export async function runPatternRequest({ initialState, request, decide, estimat
     relevantInstruments = [...new Set(decision.relevant_instruments)];
     plan = { sent_state: sentState, ...decision };
     addMetrics(decision);
+    if (decision.recorded_take_instrument !== undefined) {
+      if (!INSTRUMENTS.includes(decision.recorded_take_instrument) || !workingState.recent_take?.note_ids.length) throw new Error("Invalid recorded take correction.");
+      const target = decision.recorded_take_instrument;
+      const ids = new Set(workingState.recent_take.note_ids);
+      const untouched = workingState.pattern.notes.filter(note => !ids.has(note.id));
+      const corrected = workingState.pattern.notes.filter(note => ids.has(note.id));
+      const nextIds: string[] = [];
+      for (const before of corrected) {
+        const collision = untouched.find(note => note.instrument === target && note.bar === before.bar && note.tick === before.tick);
+        if (collision) {
+          result.applied_changes.push({ kind: "remove", before, note_id: before.id });
+        } else {
+          const after = { ...before, instrument: target, midi_pitch: before.instrument === target ? before.midi_pitch : defaultPitch(target) };
+          untouched.push(after); nextIds.push(after.id);
+          if (before.instrument !== target) result.applied_changes.push({ kind: "modify", before, after, note_id: before.id });
+        }
+      }
+      workingState.pattern = { ...workingState.pattern, notes: untouched };
+      workingState.recent_take = { ...workingState.recent_take, note_ids: [...new Set(nextIds)] };
+      historyEntry.applied_changes = result.applied_changes.length ? [`Relabeled the last recorded take as ${target}, preserving timing.`] : [];
+      result.history_entry = historyEntry;
+      return { state: appendHistory(workingState, historyEntry), result, plan, passes, model, usage, question_count: questionCount, latency_ms: latencyMs };
+    }
     if (decision.phrase_bars !== workingState.pattern.bars) {
       const before = workingState.pattern.bars;
       const removedNotes = workingState.pattern.notes.filter(note => note.bar > decision.phrase_bars).length;

@@ -1,4 +1,5 @@
 import test from "node:test";
+import { rhythmFillContext } from "../src/ai/rhythm-fill-questions.js";
 import assert from "node:assert/strict";
 import { createPatternState } from "../src/core/pattern/state.js";
 import { loadPreset, presetById } from "../src/core/pattern/presets.js";
@@ -62,7 +63,7 @@ test("an already-filled request remains the reference for the next fill, without
   const accepted = recordUndoUnit(before, completed, "Can I get 16ths on the hi-hats?");
   assert.deepEqual(accepted.state.undo_history, before.undo_history);
   const context = rhythmFillContext(stateForJev(accepted.state, "Do it on beats 2, 3 and 4 as well"));
-  assert.equal(context.previous_change?.request, "Can I get 16ths on the hi-hats?");
+  assert.equal(context.recent_history.at(-1)?.request, "Can I get 16ths on the hi-hats?");
 });
 
 test("chained implicit no-op fills retain drum and spacing after save/reload without adding undo steps", async () => {
@@ -84,10 +85,20 @@ test("chained implicit no-op fills retain drum and spacing after save/reload wit
     assert.deepEqual(state.undo_history, first.state.undo_history);
     assert.deepEqual(state.pattern, first.state.pattern);
     const context = rhythmFillContext(stateForJev(state, "Do it on beats 2, 3 and 4 as well"));
-    const descriptions = context.previous_change?.applied_changes.join(" ") ?? "";
+    const descriptions = context.recent_history.at(-1)?.applied_changes.join(" ") ?? "";
     assert.ok(descriptions.includes(instrument));
     assert.match(descriptions, /sixteenths/);
     assert.match(descriptions, /added 0 notes/);
     assert.deepEqual(undoLastChange(state).state.pattern, before.pattern);
   }
+});
+
+test("failed voice attempts do not hide the preceding hi-hat fill from follow-ups", async () => {
+  const { stateForJev } = await import("../src/core/pattern/state.js");
+  const history = [
+    { request: "Add hi-hats on eighths", applied_changes: ["Filled closed_hat with eighths in bars 1, beats 1, 2, 3, 4; added 8 notes."], rejected_changes: [] },
+    { request: "Actually make it 16 pounds", applied_changes: [], rejected_changes: [] },
+  ];
+  const context = rhythmFillContext(stateForJev(createPatternState({ recent_history: history }), "Actually add them on the 16th notes"));
+  assert.deepEqual(context.recent_history, history);
 });

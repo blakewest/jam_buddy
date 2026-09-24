@@ -123,3 +123,49 @@ Excluding the first call leaves the median and 95th percentile effectively uncha
 The 60-second Replay run completed with zero API calls and no JavaScript errors. Both desktop and mobile layouts were checked; the mobile page had no horizontal overflow.
 
 Local recordings and browser verification artifacts are in the gitignored `recordings/` folder.
+
+### Record a rhythm
+
+Run with Node 22.20+ and `npm start`, then open the pattern builder. Keep
+`TYPESAFE_API_KEY` and `OPENROUTER_API_KEY` in the project's ignored `.env`.
+Transcription uses OpenRouter's `openai/whisper-1` with word timestamps;
+Jev continues to use TypeSafe. Keys stay on the local server.
+
+Use headphones. With Bluetooth earbuds, select the computer's built-in microphone
+as input to avoid switching the earbuds into lower-quality microphone mode.
+Hold **Hold to record** with a pointer, or focus it and
+hold Space/Enter. Wait for **Recording…**, optionally speak an instruction,
+beatbox, then release. Escape, lost focus, or a disconnected microphone cancels.
+Permission is requested on first use; releasing before permission/setup finishes
+cancels the take. Takes stop at 30 seconds.
+
+Playback continues during recording and processing. Pattern and transport changes
+are locked until processing ends. Successful changes apply automatically, at the
+next available beat for note/velocity edits, or the next phrase for whole-pattern
+replacements and timing changes. Already scheduled audio is preserved, so a beat
+inside the scheduling lookahead may be skipped. Undo restores the whole change.
+Say “those should be hi-hats” to correct the last take's instrument labels.
+
+Input timing correction moves captured hits earlier when positive; adjust it for
+your interface. Output latency is accounted for separately from scheduling
+lookahead. During playback, tempo and phrase length stay fixed. Stopped replacement
+takes infer tempo between 60–180 BPM and anchor their first hit to beat one.
+Fewer than three hits retain the current tempo. Addition retains the existing
+tempo and phrase. Replacement rejects takes longer than four bars.
+
+Use the take controls to adjust the demonstration start, tempo (including
+half/double), or bar-start rotation, then **Apply adjustment**. Start adjustment is
+also offered when speech and beatboxing cannot be separated confidently. A failed
+take stays in memory for **Retry take**. Speech retries use the current beat;
+applying an old rhythm or adjusting it rejects a changed base to protect newer
+edits. Raw audio is never saved automatically. **Export diagnostic
+WAV + JSON** downloads the latest take and its timing/analysis details. Reloading
+or starting a new session discards it.
+
+The detector uses local volume, spectral balance and attack-shape heuristics,
+not a trained classifier. Settings in `src/core/recording/analysis.ts` are demo
+engineering choices. Speaker echo rejection, Bluetooth latency calibration,
+continuous listening and generated speech are not supported. Whisper may
+transcribe beatbox syllables; timestamps are evidence, not a reason to discard
+all transcribed audio. Real-voice accuracy and release-to-result latency have
+not yet been measured; synthetic tests do not establish those results.
