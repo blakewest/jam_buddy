@@ -50,6 +50,38 @@ test("root accepts bounded audio timing evidence instead of only a hit count", (
   assert.equal(validRequestState({ ...state, recording: { ...recording, words: [{ word: "like", start: 2, end: 1 }] } }), false);
 });
 
+test("recording validation keeps optional fields strict and rejects malformed evidence", () => {
+  const state = { request: "Recorded take", kit_id: "acoustic", recent_history: [] };
+  const recording = { transcript: "", hit_count: 2 };
+  for (const evidence of [
+    recording,
+    { ...recording, hit_onsets_seconds: [0, 30] },
+    { ...recording, words: [{ word: "boom", start: 30, end: 30.1 }] },
+  ]) {
+    assert.equal(validRequestState({ ...state, recording: evidence }), true);
+  }
+  for (const evidence of [
+    undefined, null, [], { transcript: "" }, { hit_count: 2 },
+    { ...recording, extra: true },
+    { ...recording, transcript: "x".repeat(5001) },
+    ...[-1, 257, 1.5, "2", NaN].map(hit_count => ({ ...recording, hit_count })),
+    ...[undefined, [1], [2, 1], [-1, 1], [1, 31], [1, Infinity], [1, NaN]]
+      .map(hit_onsets_seconds => ({ ...recording, hit_onsets_seconds })),
+    ...[undefined, Array(33).fill({ word: "boom", start: 0, end: 1 }),
+      [{ word: "boom", start: 1, end: 0 }],
+      [{ word: "boom", start: 0, end: Infinity }],
+      [{ word: "boom", start: 0, end: 30.2 }],
+      [{ word: "boom", start: 0, end: 1, extra: true }]]
+      .map(words => ({ ...recording, words })),
+  ]) {
+    assert.equal(validRequestState({ ...state, recording: evidence }), false, JSON.stringify(evidence));
+  }
+  assert.equal(validRequestState(state), true);
+  assert.equal(validRequestState({ ...state, extra: true }), false);
+  assert.equal(validRequestState({ request: "Swing it" }, "change_swing"), true);
+  assert.equal(validRequestState({ request: "Swing it", recording }, "change_swing"), false);
+});
+
 test("a stretched final cue still offers the entire demonstrated rhythm", () => {
   const hits = [0.865, 0.905, 1.3, 1.5, 1.805, 1.84, 2.05, 3.123, 3.715, 3.85, 4.026, 4.3, 4.895, 5.505, 6.075, 6.365, 6.65, 7.225]
     .map(onset_seconds => ({ onset_seconds, instrument: "kick" }));

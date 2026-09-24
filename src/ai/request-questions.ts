@@ -16,10 +16,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function hasKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+function hasKeys(value: unknown, required: readonly string[], optional: readonly string[] = []): value is Record<string, unknown> {
   return isRecord(value)
-    && Object.keys(value).length === keys.length
-    && keys.every(key => Object.hasOwn(value, key));
+    && required.every(key => Object.hasOwn(value, key))
+    && Object.keys(value).every(key => required.includes(key) || optional.includes(key));
 }
 const boundedText = (value: unknown, limit: number): value is string => typeof value === "string" && value.length <= limit;
 const boundedDescriptions = (value: unknown): value is string[] =>
@@ -30,6 +30,35 @@ function validHistoryEntry(value: unknown): value is HistoryEntry {
     && boundedText(value.request, 500)
     && boundedDescriptions(value.applied_changes)
     && boundedDescriptions(value.rejected_changes);
+}
+
+function boundedNumber(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+}
+
+function validHitOnsets(value: unknown, hitCount: number): boolean {
+  return Array.isArray(value)
+    && value.length === hitCount
+    && value.every((time, index) => boundedNumber(time, 0, 30)
+      && (index === 0 || time >= value[index - 1]));
+}
+
+function validWordTiming(value: unknown): boolean {
+  return hasKeys(value, ["word", "start", "end"])
+    && boundedText(value.word, 200)
+    && boundedNumber(value.start, 0, 30.1)
+    && boundedNumber(value.end, value.start, 30.1);
+}
+
+function validRecordingContext(value: unknown): value is RecordingContext {
+  if (!hasKeys(value, ["transcript", "hit_count"], ["hit_onsets_seconds", "words"])) return false;
+  if (!boundedText(value.transcript, 5000)) return false;
+  if (!boundedNumber(value.hit_count, 0, 256) || !Number.isInteger(value.hit_count)) return false;
+  if (Object.hasOwn(value, "hit_onsets_seconds") && !validHitOnsets(value.hit_onsets_seconds, value.hit_count)) return false;
+  if (Object.hasOwn(value, "words")) {
+    if (!Array.isArray(value.words) || value.words.length > 32 || !value.words.every(validWordTiming)) return false;
+  }
+  return true;
 }
 
 function selectionQuestion(question: string, focus: string, criteria: Record<string, unknown>) {
@@ -117,28 +146,8 @@ export const REQUEST_QUESTIONS = Object.freeze({
 export function validRequestState(state: unknown, nodeId = "root"): state is RequestState {
   if (nodeId === "change_swing") return hasKeys(state, ["request"])
     && boundedText(state.request, 500) && Boolean(state.request.trim());
-  if (!isRecord(state)) return false;
-  const keys = ["request", "kit_id", "recent_history"];
-  if (state.recording !== undefined) {
-    keys.push("recording");
-    if (!isRecord(state.recording)) return false;
-    const recordingKeys = ["transcript", "hit_count"];
-    if (state.recording.hit_onsets_seconds !== undefined) {
-      recordingKeys.push("hit_onsets_seconds");
-      const onsets = state.recording.hit_onsets_seconds;
-      if (!Array.isArray(onsets) || onsets.length !== state.recording.hit_count || onsets.length > 256
-        || !onsets.every((time, index) => Number.isFinite(time) && time >= 0 && time <= 30 && (!index || time >= onsets[index - 1]))) return false;
-    }
-    if (state.recording.words !== undefined) {
-      recordingKeys.push("words");
-      const words = state.recording.words;
-      if (!Array.isArray(words) || words.length > 32 || !words.every(word => hasKeys(word, ["word", "start", "end"])
-        && boundedText(word.word, 200) && typeof word.start === "number" && typeof word.end === "number"
-        && Number.isFinite(word.start) && Number.isFinite(word.end) && word.start >= 0 && word.end >= word.start && word.end <= 30.1)) return false;
-    }
-    if (!hasKeys(state.recording, recordingKeys) || !boundedText(state.recording.transcript, 5000) || !Number.isInteger(state.recording.hit_count) || Number(state.recording.hit_count) < 0 || Number(state.recording.hit_count) > 256) return false;
-  }
-  if (!hasKeys(state, keys)) return false;
+  if (!hasKeys(state, ["request", "kit_id", "recent_history"], ["recording"])) return false;
+  if (Object.hasOwn(state, "recording") && !validRecordingContext(state.recording)) return false;
 
   if (!boundedText(state.request, 500) || !state.request.trim()) return false;
   if (!KITS.some(kit => kit.id === state.kit_id)) return false;
