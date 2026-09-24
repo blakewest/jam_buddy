@@ -6,7 +6,7 @@ import { getKit, KITS } from "./kits.js";
 import type { Candidate, HistoryEntry, PatternChange, PatternState } from "./state.js";
 import type { PatternPass, PatternPlan, PatternRunResult } from "./runner.js";
 
-export type RequestBranchId = "recorded_rhythm" | "fill_rhythm" | "change_swing" | "change_tempo" | "edit_pattern" | "change_kit" | "add_compression" | "polish_mix" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
+export type RequestBranchId = "recorded_rhythm" | "fill_rhythm" | "change_swing" | "change_tempo" | "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
 export type RequestQuestionId = "root" | "change_kit" | "change_swing" | "change_tempo";
 export type TempoAction = "increase" | "decrease" | "set_exact" | "unsupported";
 export type NodeAnswer = { selection?: { type: "choice"; choice: string } };
@@ -102,8 +102,6 @@ export const REQUEST_TREE = {
         description: "switch the whole drum kit",
         execute: changeKitBranch,
       },
-      add_compression: { description: "make the drums punchier, add compression, or make the beat hit harder", execute: (context: BranchContext) => effectBranch(context, "compression") },
-      polish_mix: { description: "polish or master the drum mix with light EQ and compression", execute: (context: BranchContext) => effectBranch(context, "polish") },
       load_preset: { description: "load a complete beat preset by genre or style", execute: (context: BranchContext) => grooveBranch(context, "load_preset") },
       shuffle_preset: { description: "shuffle to a different beat, including 'no, something else'", execute: (context: BranchContext) => grooveBranch(context, "shuffle_preset") },
       clear_pattern: { description: "clear every note and start with an empty beat", execute: (context: BranchContext) => grooveBranch(context, "clear_pattern") },
@@ -112,7 +110,7 @@ export const REQUEST_TREE = {
         execute: undoBranch,
       },
       unsupported: {
-        description: "Outside supported capabilities, no actionable request, or combines different actions (such as undo plus editing, or kit swapping plus note editing). Custom effects and per-instrument sample replacement are unsupported.",
+        description: "Outside supported capabilities, no actionable request, or combines different actions (such as undo plus editing, or kit swapping plus note editing). Effects and per-instrument sample replacement are unsupported.",
         execute: unsupportedBranch,
       },
     },
@@ -168,7 +166,7 @@ async function grooveBranch(context: BranchContext, category: RequestBranchId): 
 }
 
 export type RootRoute = { category: RequestBranchId; next_node: string | null; message: string | null };
-const nextNodes: Record<RequestBranchId, string | null> = { recorded_rhythm: "recorded_rhythm", fill_rhythm: "rhythm_fill", change_swing: "change_swing", change_tempo: "change_tempo", edit_pattern: "edit_plan", change_kit: "change_kit", add_compression: "add_compression", polish_mix: "polish_mix", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
+const nextNodes: Record<RequestBranchId, string | null> = { recorded_rhythm: "recorded_rhythm", fill_rhythm: "rhythm_fill", change_swing: "change_swing", change_tempo: "change_tempo", edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
 export const REQUEST_CATEGORIES = Object.freeze(Object.fromEntries(Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { description: branch.description, next_node: nextNodes[id as RequestBranchId] }])));
 export const unsupportedMessage = unsupportedGuidance;
 export function resolveRoot(category: string): RootRoute {
@@ -233,22 +231,6 @@ async function changeKitBranch(context: BranchContext): Promise<CommandResult> {
 
 function undoBranch({ state, request }: BranchContext): CommandResult {
   return undoLastChange(state, request);
-}
-
-function effectBranch({ state, request }: BranchContext, effect: "compression" | "polish"): CommandResult {
-  return applyPatternEffect(state, request, effect);
-}
-
-export function applyPatternEffect(state: PatternState, request: string, effect: "compression" | "polish"): CommandResult {
-  const effects = state.pattern.effects ?? { compression: false, polish: false };
-  const changed = !effects[effect];
-  const label = effect === "compression" ? "Glue compression" : "Light EQ and mastering compression";
-  const historyEntry = { request, applied_changes: changed ? [`Added ${label}`] : [], rejected_changes: [] };
-  return {
-    state: changed ? appendHistory({ ...state, pattern: { ...state.pattern, effects: { ...effects, [effect]: true } } }, historyEntry) : state,
-    result: { applied_changes: changed ? [{ kind: "effect", effect }] : [], rejected_changes: [], ignored_changes: [], candidates: [], history_entry: historyEntry },
-    passes: [], plan: null, message: changed ? `${label} added.` : `${label} is already on.`, usage: {}, latency_ms: 0, question_count: 0, model: null,
-  };
 }
 
 function unsupportedBranch({ state, request }: BranchContext): CommandResult {

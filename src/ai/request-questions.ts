@@ -93,7 +93,6 @@ function buildRootQuestions() {
     "Adding or adjusting swing on the current groove selects change_swing, including 'no, swing it harder'. Explicitly asking to load a new swing-style beat still selects load_preset.",
     "Making the whole beat slower or faster, or setting a specific BPM, selects change_tempo. A new preset requested by style still selects load_preset.",
     "A kit change selects sounds while preserving every note. A note edit changes the rhythm or velocity.",
-    "Make drums punchier, add compression, or make this hit harder selects add_compression. Polish it up or master it selects polish_mix. These are whole-mix effects, not note velocity edits.",
     "Route requests for unavailable whole kits to change_kit so that node can reject them.",
   ].join(" ");
   return selectionQuestion("Which single supported category does `request` belong to?", focus, criteria);

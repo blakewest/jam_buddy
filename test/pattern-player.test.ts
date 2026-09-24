@@ -12,7 +12,6 @@ function deferred() {
 }
 
 function fakeAudio() {
-  const param = (value: number) => ({ value, setValueAtTime(next: number) { this.value = next; }, cancelScheduledValues() {} });
   const oldWindow = globalThis.window;
   const oldFetch = globalThis.fetch;
   const requested: any[] = [];
@@ -25,9 +24,7 @@ function fakeAudio() {
       constructor() { context = this; }
       currentTime = 0;
       destination = {};
-      createGain() { return { gain: param(0), connect() {}, disconnect() {} }; }
-      createBiquadFilter() { return { type: "", frequency: param(0), gain: param(0), connect() {} }; }
-      createDynamicsCompressor() { return { threshold: param(0), ratio: param(1), attack: param(0), release: param(0), connect() {} }; }
+      createGain() { return { gain: { value: 0 }, connect() {}, disconnect() {} }; }
       createBufferSource() { return { connect() {}, start(time: number) { starts.push(time); }, stop() {} }; }
       decodeAudioData() { return Promise.resolve({}); }
       resume() { return Promise.resolve(); }

@@ -225,7 +225,6 @@ function describeChange(change: CommandResult["result"]["applied_changes"][numbe
   if (change.kind === "undo") return `Undid: ${change.request}`;
   if (change.kind === "swing") return `Swing: ${change.before_swing}% → ${change.after_swing}%`;
   if (change.kind === "kit") return `Changed kit: ${getKit(change.before_kit!).name} → ${getKit(change.after_kit!).name}`;
-  if (change.kind === "effect") return change.effect === "compression" ? "Added glue compression" : "Added light EQ and mastering compression";
   if (change.kind === "reset") return "Cleared the entire pattern";
   if (change.kind === "resize") return `Changed phrase from ${change.before_bars} to ${change.after_bars} bars`;
   if (change.kind === "remove") return `Removed ${labels[change.before?.instrument ?? ""] ?? change.note_id}`;

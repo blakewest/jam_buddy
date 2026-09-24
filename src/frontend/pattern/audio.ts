@@ -12,8 +12,6 @@ const sampleIndex = (velocity: number, count: number) => Math.min(count - 1, Mat
 export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: { onError?: (message: string) => void; onSwap?: (pattern: PlaybackPattern) => void } = {}) {
   let context: AudioContext;
   let output: GainNode;
-  let eq: BiquadFilterNode;
-  let compressor: DynamicsCompressorNode;
   let timer: number | null;
   let manifest: { families: Record<string, string[]> };
   let manifestRequest: Promise<typeof manifest> | null;
@@ -79,28 +77,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     context = new Context();
     output = context.createGain();
     output.gain.value = 0.8;
-    eq = context.createBiquadFilter();
-    eq.type = "highshelf";
-    eq.frequency.value = 6000;
-    compressor = context.createDynamicsCompressor();
-    output.connect(eq);
-    eq.connect(compressor);
-    compressor.connect(context.destination);
-    applyEffects(activePattern);
-  }
-
-  function applyEffects(pattern: PlaybackPattern, atTime?: number) {
-    const glue = pattern.effects?.compression === true;
-    const polish = pattern.effects?.polish === true;
-    const set = (param: AudioParam, value: number) => {
-      if (atTime === undefined) param.value = value;
-      else param.setValueAtTime(value, atTime);
-    };
-    set(eq.gain, polish ? 1.5 : 0);
-    set(compressor.threshold, glue && polish ? -20 : polish ? -16 : glue ? -22 : 0);
-    set(compressor.ratio, glue && polish ? 2.5 : polish ? 2 : glue ? 3 : 1);
-    set(compressor.attack, polish ? 0.01 : 0.02);
-    set(compressor.release, polish ? 0.22 : 0.18);
+    output.connect(context.destination);
   }
 
   async function load(pattern = activePattern) {
@@ -160,7 +137,6 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     pendingPattern = window.pendingPattern;
     pendingBpm = window.pendingBpm;
     if (window.didSwap) {
-      applyEffects(activePattern, boundaryTime);
       if (pendingBoundary === "phrase") originTime = boundaryTime;
       pendingBoundaryTime = null;
       audibleSwap = { pattern: clone(activePattern), time: boundaryTime + (context.outputLatency ?? 0) + (context.baseLatency ?? 0) };
@@ -178,7 +154,6 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
       await context.resume();
       if (version !== startVersion) return false;
       activePattern = clone(pattern);
-      applyEffects(activePattern);
       activeBpm = update.bpm;
       pendingPattern = null;
       pendingBpm = null;
@@ -205,7 +180,6 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {} }: {
     pendingBoundaryTime = null;
     pendingBoundary = "phrase";
     audibleSwap = null;
-    if (context) for (const param of [eq.gain, compressor.threshold, compressor.ratio, compressor.attack, compressor.release]) param.cancelScheduledValues(context.currentTime);
     playing = false;
     if (timer) window.clearInterval(timer);
     timer = null;

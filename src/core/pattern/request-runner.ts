@@ -6,7 +6,7 @@ import { applyVelocityEdit } from "./velocity-edit.js";
 import type { VelocityIntent } from "./velocity-edit.js";
 import type { PatternState, PresetAttributes, PatternChange, HistoryEntry } from "./state.js";
 import type { RootRoute, TempoAction } from "./request-tree.js";
-import { applyPatternEffect, applyTempoChange } from "./request-tree.js";
+import { applyTempoChange } from "./request-tree.js";
 import type { PatternRunResult, PatternPlan, PatternPass } from "./runner.js";
 import type { Decision } from "../../ai/question-types.js";
 export type SearchResult = Decision & { attributes?: PresetAttributes; candidate_ids: string[]; has_explicit_filters?: boolean; alternatives?: unknown };
@@ -31,13 +31,6 @@ export async function runPatternTree({ state, request, route, searchPresets, sel
   const routed = await route(request);
   record("root", routed);
   if (routed.route.category === "unsupported") return { state, route: routed.route, visits, result: { message: routed.route.message, applied_changes: [] }, model, usage, question_count: questionCount, latency_ms: latencyMs };
-
-  if (routed.route.category === "add_compression" || routed.route.category === "polish_mix") {
-    const effect = routed.route.category === "add_compression" ? "compression" : "polish";
-    const applied = applyPatternEffect(state, request, effect);
-    record(routed.route.category, applied.result);
-    return { ...applied, route: routed.route, visits, model, usage, question_count: questionCount, latency_ms: latencyMs };
-  }
 
   if (routed.route.category === "change_tempo") {
     if (!interpretTempo) throw new Error("Tempo tool is unavailable.");

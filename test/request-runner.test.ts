@@ -16,14 +16,6 @@ test("clearing a loaded groove bypasses every edit and preset API", async () => 
   assert.deepEqual(result.result.applied_changes, [{ kind: "reset" }]);
 });
 
-test("effect routes apply locally without entering preset search or note editing", async () => {
-  const initial = createPatternState();
-  const forbidden = async () => { throw new Error("Unexpected API call"); };
-  const result = await runPatternTree({ state: initial, request: "add some compression", route: async () => ({ route: { category: "add_compression" } }), runEdit: forbidden, searchPresets: forbidden, selectPreset: forbidden } as unknown as Parameters<typeof runPatternTree>[0]);
-  assert.equal(result.state.pattern.effects?.compression, true);
-  assert.equal(result.result.applied_changes[0].kind, "effect");
-});
-
 test("tempo route uses its child decision without entering the note editor", async () => {
   const initial = createPatternState({ tempo_bpm: 120 });
   const forbidden = async () => { throw new Error("Unexpected API call"); };
