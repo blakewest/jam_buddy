@@ -1,15 +1,17 @@
+import { TOM_DEFAULT } from "./instrument-rules.js";
 import type { PatternJevState, Instrument } from "../core/pattern/state.js";
 import type { Questions } from "./question-types.js";
 import { INSTRUMENTS } from "../core/pattern/state.js";
 import { editPositions } from "../core/pattern/musical-time.js";
 
 const inspect = ["request", "pattern.bars", "pattern.parts", "music_reference", "recent_history", "recent_take"];
-const context = "Make the next single-note edit that moves `pattern` closer to the current `request`. If the pattern already fulfills the request, choose no edits. The application will send another pass with the updated pattern when more work remains. When present, `recent_take.note_ids` identifies the most recently inserted demonstration; use it for 'those' or 'that take'. Relabeling those hits preserves their timing unless timing is explicitly requested. The current request is authoritative; use `recent_history` only to resolve references such as 'that' or 'again'.";
+const context = TOM_DEFAULT + " Make the next single-note edit that moves `pattern` closer to the current `request`. If the pattern already fulfills the request, choose no edits. The application will send another pass with the updated pattern when more work remains. When present, `recent_take.note_ids` identifies the most recently inserted demonstration; use it for 'those' or 'that take'. Relabeling those hits preserves their timing unless timing is explicitly requested. The current request is authoritative; use `recent_history` only to resolve references such as 'that' or 'again'.";
 const operationCountQuestion = {
   type: "choice",
   instructions: {
     question: "How many atomic note operations are required to make the current `pattern` fulfill `request`?",
     inspect,
+    tom_default: TOM_DEFAULT,
     atomic_operation: "Adding, removing, or changing one existing note is one operation. Changing several fields or moving the same note several grid steps is still one operation. A whole-pattern reset is one operation.",
     focus: "Count only distinct notes that must change. Phrase-length changes are handled separately and do not count. Choose zero when no note edits are needed.",
   },
@@ -51,6 +53,7 @@ export const PLANNING_QUESTIONS = {
     instructions: {
       question: `Does fulfilling \`request\` involve ${instrumentCriteria[instrument].sound} notes as an existing source, a new target, or both?`,
       inspect,
+      tom_default: TOM_DEFAULT,
       focus: "Include an instrument when its notes may need adding, removing, or changing. Broad requests about the whole groove involve every current instrument.",
     },
     criteria: {
@@ -202,7 +205,7 @@ export function patternSummary(state: PatternJevState) {
 }
 
 export function buildScopeQuestion(state: PatternJevState, instruments: Instrument[]): Questions {
-  return { edit_scope: { type: "choice", instructions: "Choose the instrument and bar for the next single-note edit requested in `request`. For edits across several bars, choose the next bar that still needs a change. Choose none if already satisfied.", criteria: {
+  return { edit_scope: { type: "choice", instructions: TOM_DEFAULT + " Choose the instrument and bar for the next single-note edit requested in `request`. For edits across several bars, choose the next bar that still needs a change. Choose none if already satisfied.", criteria: {
     none: "No further edit needed",
     ...Object.fromEntries(instruments.flatMap(instrument => Array.from({ length: state.pattern.bars }, (_, i) => [`${instrument}:${i + 1}`, `Edit ${instrument} in bar ${i + 1}`]))),
   } } };
@@ -226,7 +229,7 @@ export function buildPlanningQuestions(state: PatternJevState) {
   if (!state.recent_take?.note_ids.length) return PLANNING_QUESTIONS;
   return { ...PLANNING_QUESTIONS, recorded_take_instrument: {
     type: "choice" as const,
-    instructions: "Does `request` ONLY ask to relabel all notes identified by `recent_take.note_ids` as one instrument (for example 'those should be hi-hats')? Select that instrument only for an explicit whole-take label correction. Otherwise use ordinary_edit, including changes to timing, velocity, phrase length, a subset of hits, or multiple kinds of edits.",
+    instructions: TOM_DEFAULT + " Does `request` ONLY ask to relabel all notes identified by `recent_take.note_ids` as one instrument (for example 'those should be hi-hats')? Select that instrument only for an explicit whole-take label correction. Otherwise use ordinary_edit, including changes to timing, velocity, phrase length, a subset of hits, or multiple kinds of edits.",
     criteria: { ordinary_edit: "Use the normal atomic note edit loop.", kick: "All notes of the last take should be kicks.", snare: "All notes of the last take should be snares.", closed_hat: "All notes of the last take should be closed hi-hats.", open_hat: "All notes of the last take should be open hi-hats." },
   } };
 }

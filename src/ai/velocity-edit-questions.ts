@@ -1,3 +1,4 @@
+import { TOM_DEFAULT } from "./instrument-rules.js";
 import { selectionRegions } from "../core/pattern/selection.js";
 import type { BeatSelection } from "../core/pattern/selection.js";
 import { INSTRUMENTS } from "../core/pattern/state.js";
@@ -14,7 +15,7 @@ export function buildVelocityEditQuestions(state: PatternJevState) {
       decrease_lots: "Much quieter, a lot softer, really quiet: decrease each selected note once by 32",
       other: "Not a relative note-velocity change, an unsupported numeric amount, a mixed edit, or unresolved references. Ordinary quiet-down/softer requests belong to decrease.",
     }),
-    instrument: choice("Which instrument does this velocity request explicitly target? Unqualified hi-hats means both closed and open hats. When a selection is present, 'this', 'these' or 'those' with no named instrument means selected. Choose unknown only when no target can be resolved.", { ...Object.fromEntries(INSTRUMENTS.map(i => [i, i])), selected: "The highlighted drum lanes, when selection is present", hats: "Hi-hats, open and closed", all: "All drums", unknown: "Unclear or multiple instruments other than hats/all" }),
+    instrument: choice(TOM_DEFAULT + " Which instrument does this velocity request explicitly target? Unqualified hi-hats means both closed and open hats. When a selection is present, 'this', 'these' or 'those' with no named instrument means selected. Choose unknown only when no target can be resolved.", { ...Object.fromEntries(INSTRUMENTS.map(i => [i, i])), selected: "The highlighted drum lanes, when selection is present", hats: "Hi-hats, open and closed", all: "All drums", unknown: "Unclear or multiple instruments other than hats/all" }),
     beat_scope: choice("Does the request specify numbered beats?", { all: "No numbered restriction, all beats", selected: "Specific numbered beats" }),
     subdivision: choice("Read ONLY the literal words in `request` to choose positions within a beat. Ignore beat numbers in selection and history for this question. Default ALL: 'make this softer', 'these louder', 'quiet down right here', and 'make hats louder' mean every note in the target area, including subdivisions and human timing. Choose onbeats only when the request itself explicitly asks for numbered on-beat hits, such as 'on beats 3 and 4'. Choose offbeats only for explicit offbeats or eighth-note ands.", { onbeats: "Numbered beats/on-beats", offbeats: "Off-beats/ands", all: "All subdivisions" }),
     bar_scope: choice("Does the request specify bar numbers? Beat numbers are not bar numbers. Default to all bars.", { all: "All bars", selected: "Specific bars" }),

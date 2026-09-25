@@ -1,0 +1,1 @@
+export const TOM_DEFAULT = "Unqualified tom or toms (for example, add some toms) means mid_tom only. Explicit high, mid/middle, floor/low toms or all toms override this default. For an addition with no timing specified, choose a musical placement rather than no edits.";
