@@ -109,7 +109,7 @@ test("pattern builder is home and timing lab has its own URL", async () => {
     const pattern = await fetch(`${url}/pattern.html`).then(response => response.text());
     const timing = await fetch(`${url}/timing.html`).then(response => response.text());
     assert.equal(home, pattern);
-    assert.match(home, /href="\/timing.html"/);
+    assert.doesNotMatch(home, /href="\/timing.html"/);
     assert.match(timing, /Can the drummer keep up\?/);
     assert.match(timing, /href="\/">Pattern builder/);
   });
