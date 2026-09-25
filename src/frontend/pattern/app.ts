@@ -102,7 +102,7 @@ let demoTypingFrame = 0;
 let demoTypingText = "";
 const defaultRequestPlaceholder = $("request").placeholder;
 const starterSuggestions = Array.from(document.querySelectorAll<HTMLButtonElement>(".examples button"), button => button.textContent ?? "");
-const editingSuggestions = ["Change the kit to something more electronic", "Quiet down the snare drums", "Add a kick before the end of beat 1"];
+const editingSuggestions = ["Change the kit to something more electronic", "Quiet down the snare drums", "Add a kick before the end of bar 1"];
 
 function updateSuggestions(editing: boolean) {
   $("request").placeholder = editing ? "Make changes to the beat" : defaultRequestPlaceholder;
