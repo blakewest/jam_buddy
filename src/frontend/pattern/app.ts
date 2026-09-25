@@ -80,6 +80,11 @@ function $<K extends keyof Elements>(id: K): Elements[K] {
   if (!element) throw new Error(`Missing element: ${id}`);
   return element as Elements[K];
 }
+function setRequestStatus(message: string, hint = false) {
+  $("request-status").textContent = message;
+  $("request-status").classList.toggle("is-hint", hint);
+}
+
 const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
 let demo: ReturnType<typeof createDemoStudio> | undefined;
 let replayView: DemoView | null = null;
@@ -133,7 +138,7 @@ async function refreshMicrophones() {
     select.value = microphoneId;
     select.title = select.selectedOptions[0]?.textContent ?? "Microphone input";
     $("microphone-enable").hidden = devices.some(device => !!device.label);
-  } catch { $("request-status").textContent = "Could not list microphones. Check browser microphone permissions."; }
+  } catch { setRequestStatus("Could not list microphones. Check browser microphone permissions."); }
 }
 $("microphone").addEventListener("change", () => {
   microphoneId = $("microphone").value;
@@ -148,8 +153,8 @@ $("microphone-enable").addEventListener("click", async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach(track => track.stop());
     await refreshMicrophones();
-    $("request-status").textContent = "";
-  } catch { $("request-status").textContent = "Allow microphone access in your browser to choose an input."; }
+    setRequestStatus("");
+  } catch { setRequestStatus("Allow microphone access in your browser to choose an input."); }
   finally { microphoneSetup = false; updateControls(); }
 });
 navigator.mediaDevices?.addEventListener("devicechange", () => { void refreshMicrophones(); });
@@ -205,7 +210,7 @@ async function storage(value?: SavedSession): Promise<SavedSession | undefined> 
 
 async function persist() {
   if (demo?.isReplaying()) return;
-  try { await storage({ state: pendingState ?? state, logs: logs.slice(-50) }); } catch { $("request-status").textContent = "Browser storage is unavailable; this session will not survive a reload."; }
+  try { await storage({ state: pendingState ?? state, logs: logs.slice(-50) }); } catch { setRequestStatus("Browser storage is unavailable; this session will not survive a reload."); }
 }
 
 function animateHit(instrument: string) {
@@ -231,7 +236,7 @@ const player = createPatternPlayer({
     if (!pendingState) return;
     state = pendingState;
     pendingState = null;
-    $("request-status").textContent = "Changes are now playing.";
+    setRequestStatus("Changes are now playing.");
     render();
     focusRequest();
     persist();
@@ -499,10 +504,10 @@ async function commitOrStage(nextState: PatternState, autoPlay = true, boundary:
     pendingState = nextState;
     updateControls();
     pendingBoundary = await player.stage(nextState.pattern, nextState.tempo_bpm, boundary) ?? "beat";
-    $("request-status").textContent = `Accepted changes are waiting for the next ${pendingBoundary}.`;
+    setRequestStatus(`Accepted changes are waiting for the next ${pendingBoundary}.`);
   } else {
     state = nextState;
-    $("request-status").textContent = "Changes applied.";
+    setRequestStatus("Changes applied.");
   }
   gridSelection.clear();
   render();
@@ -518,7 +523,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
   const signal = requestAbort.signal;
   const selection = gridSelection.snapshot();
   updateControls();
-  $("request-status").textContent = local ? "Applying change…" : "Jev is choosing the kind of change…";
+  setRequestStatus(local ? "Applying change…" : "Jev is choosing the kind of change…");
   const decide: Decide = async <T>(url: string, payload: unknown): Promise<T> => {
     signal.throwIfAborted();
     const started = performance.now();
@@ -533,7 +538,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
     let completed = await run(decide);
     if (version !== operationVersion) return;
     if (completed.result.applied_changes.length) {
-      $("request-status").textContent = "Preparing sounds…";
+      setRequestStatus("Preparing sounds…");
       await player.load(completed.state.pattern);
       if (version !== operationVersion) return;
     }
@@ -550,14 +555,14 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
     }
     else {
       state = completed.state;
-      $("request-status").textContent = completed.message ?? "No changes needed.";
+      setRequestStatus(local ? completed.message ?? "No changes needed." : "Hey, I didn’t quite get that. Try another command?", !local);
       render();
       persist();
     }
   } catch (error) {
     if (version === operationVersion) {
       const message = error instanceof Error ? error.message : String(error);
-      $("request-status").textContent = message;
+      setRequestStatus(message);
       if (recordProcessing && takeMemory) {
         const log = { request: "Recorded rhythm failed", message, local: false };
         logs = [...logs, log].slice(-50);
@@ -586,7 +591,7 @@ function editRequest(request: string, decide: Decide) {
       return data;
     },
     decide: (sentState, pass, plan) => {
-      $("request-status").textContent = `Jev is considering edit ${pass} of ${plannedOperationCount}…`;
+      setRequestStatus(`Jev is considering edit ${pass} of ${plannedOperationCount}…`);
       return decide("/api/pattern-decision", { state: sentState, instruments: plan.relevant_instruments });
     },
   });
@@ -614,7 +619,7 @@ function commandForRequest(request: string, decide: Decide) {
     request,
     grooveRequest: grooveHandler(request, decide),
     decideNode: (nodeId, sentState) => {
-      $("request-status").textContent = nodeId === "root" ? "Jev is choosing the kind of change…" : nodeId === "change_swing" ? "Jev is adjusting swing…" : nodeId === "change_tempo" ? "Jev is setting tempo…" : "Jev is selecting a kit…";
+      setRequestStatus(nodeId === "root" ? "Jev is choosing the kind of change…" : nodeId === "change_swing" ? "Jev is adjusting swing…" : nodeId === "change_tempo" ? "Jev is setting tempo…" : "Jev is selecting a kit…");
       return decide("/api/request-decision", { node_id: nodeId, state: sentState });
     },
     editPattern: () => editRequest(request, decide),
@@ -635,10 +640,10 @@ const recorder = createRecorder({
   onStatus: status => {
     captureStatus = status;
     if (status === "recording") void refreshMicrophones();
-    if (status !== "idle") $("request-status").textContent = status === "initializing" ? "Preparing microphone — keep holding." : "Recording now. Release when you’re done.";
+    if (status !== "idle") setRequestStatus(status === "initializing" ? "Preparing microphone — keep holding." : "Recording now. Release when you’re done.");
     updateControls();
   },
-  onError: message => { $("request-status").textContent = message; },
+  onError: message => { setRequestStatus(message); },
   onTake: take => {
     takeMemory = { take, before: createPatternState(state) };
     if (demo?.isRecording()) {
@@ -655,7 +660,7 @@ function cancelRecording() {
   recorder.cancel();
   if (recordProcessing) { operationVersion++; requestAbort?.abort(); requestAbort = null; busy = false; recordProcessing = false; }
   takeMemory = null;
-  $("request-status").textContent = "Recording canceled.";
+  setRequestStatus("Recording canceled.");
   updateControls();
 }
 function mappedTake(memory: NonNullable<typeof takeMemory>): CommandResult {
@@ -673,7 +678,7 @@ function mappedTake(memory: NonNullable<typeof takeMemory>): CommandResult {
   result.state.next_note_id = Math.max(result.state.next_note_id, state.next_note_id);
   result.state.undo_history = state.undo_history;
   result.state.recent_history = [...state.recent_history, result.result.history_entry].slice(-8);
-  if (span.tempos[0].uncertain) $("request-status").textContent = "Tempo may need adjusting after this take.";
+  if (span.tempos[0].uncertain) setRequestStatus("Tempo may need adjusting after this take.");
   return result;
 }
 async function processTake() {
@@ -681,7 +686,7 @@ async function processTake() {
   if (!memory) return;
   const blocked = busy || pendingState || startingPlayback || captureStatus !== "idle";
   if (blocked) {
-    $("request-status").textContent = "Jev is busy. Try recording again in a moment.";
+    setRequestStatus("Jev is busy. Try recording again in a moment.");
     takeMemory = null;
     updateControls();
     return;
@@ -690,7 +695,7 @@ async function processTake() {
   const acceptedBefore = operationVersion;
   await performRequest("Recorded rhythm", async decide => {
     const signal = requestAbort!.signal;
-    $("request-status").textContent = "Analyzing and transcribing…";
+    setRequestStatus("Analyzing and transcribing…");
     const hits = analyzeTake(memory.take.samples, memory.take.sample_rate);
     if (!memory.transcript) {
       const response = await fetch("/api/transcribe", { method: "POST", signal, headers: { "Content-Type": "audio/wav" }, body: encodeWav(memory.take.samples, memory.take.sample_rate) });
@@ -765,7 +770,7 @@ $("tempo").addEventListener("change", () => {
     // the beat-boundary swap commits the new state.
     void commitOrStage(next, false).catch(error => {
       pendingState = null;
-      $("request-status").textContent = error instanceof Error ? error.message : String(error);
+      setRequestStatus(error instanceof Error ? error.message : String(error));
       render();
     });
     return;
@@ -800,7 +805,7 @@ $("stop").addEventListener("click", () => {
   cancelWork();
   if (pendingState) { state = pendingState; pendingState = null; persist(); }
   $("playback-status").textContent = "Stopped";
-  $("request-status").textContent = "Stopped. Ready for your next request.";
+  setRequestStatus("Stopped. Ready for your next request.");
   render();
 });
 
@@ -829,7 +834,7 @@ $("new-session").addEventListener("click", () => {
   pendingState = null;
   logs = [];
   $("playback-status").textContent = "Stopped";
-  $("request-status").textContent = "New empty session ready.";
+  setRequestStatus("New empty session ready.");
   $("request-meta").textContent = "No API call yet";
 
   render();
@@ -839,7 +844,7 @@ $("new-session").addEventListener("click", () => {
 document.querySelector(".examples")?.addEventListener("click", event => {
   if (!(event.target instanceof HTMLButtonElement)) return;
   if (event.target.dataset.branch === "recorded_rhythm") {
-    $("request-status").textContent = "Hold ‘Hold to speak’, say which drum to use, then beatbox your rhythm. Release to send it to Jev.";
+    setRequestStatus("Hold ‘Hold to speak’, say which drum to use, then beatbox your rhythm. Release to send it to Jev.");
     $("record").focus();
     return;
   }
@@ -867,7 +872,7 @@ demo = createDemoStudio({
   onReplayView: view => {
     if (view.request && view.request !== replayView?.request) typeDemoText(view.request);
     replayView = view;
-    $("request-status").textContent = view.request_status;
+    setRequestStatus(view.request_status);
     $("playback-status").textContent = view.playback_status;
     $("volume").value = String(view.volume);
     gridSelection.set(view.selection);
@@ -898,7 +903,7 @@ demo = createDemoStudio({
     if (!completed && replayRestore) $("volume").value = replayRestore.volume;
     replayRestore = null;
     $("playback-status").textContent = "Stopped";
-    $("request-status").textContent = completed ? "Demo finished. Your turn to build a beat." : "Demo stopped. Your working beat is unchanged.";
+    setRequestStatus(completed ? "Demo finished. Your turn to build a beat." : "Demo stopped. Your working beat is unchanged.");
     render();
   },
 });
@@ -929,7 +934,7 @@ try {
   const saved = await storage();
   if (saved?.state) state = createPatternState({ ...saved.state, tempo_bpm: saved.state.tempo_bpm ?? saved.tempo_bpm });
   if (Array.isArray(saved?.logs)) logs = saved.logs.slice(-50);
-} catch { $("request-status").textContent = "Browser storage is unavailable; the demo still works for this tab."; }
+} catch { setRequestStatus("Browser storage is unavailable; the demo still works for this tab."); }
 render();
 
 void refreshMicrophones();

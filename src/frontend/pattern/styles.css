@@ -86,7 +86,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .session-details summary { color: #91adaa; font-size: 11px; cursor: pointer; }
 .examples-label { margin: 20px 0 10px; color: #91adaa; font-size: 12px; }
 .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; max-width: calc(100% - var(--side-width) - var(--column-gap)); }.examples button { padding: 8px 11px; border-radius: 16px; border-color: #345057; background: transparent; color: #a9c6bd; font-size: 11px; font-weight: 500; }.examples button:hover { background: #2c4148; border-color: #688782; }
-.request-status { display: flex; justify-content: space-between; gap: 12px; margin: 16px 0 0; min-height: 16px; color: #add4bb; font-size: 11px; }
+.request-input { min-width: 0; }
+.request-status { margin: 8px 0 0; min-height: 16px; color: #add4bb; font-size: 11px; line-height: 1.5; }
+.request-status.is-hint { color: #c4b5e8; font-size: 12px; }
 .session-footer { margin-top: 24px; border-top: 1px solid #345057; padding-top: 12px; }
 .session-shortcuts { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .session-shortcuts button, .session-shortcuts #new-session { padding: 6px 9px; font-size: 11px; line-height: 16px; }

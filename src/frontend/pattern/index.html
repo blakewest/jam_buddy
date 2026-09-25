@@ -42,7 +42,10 @@
       <form id="request-form">
         <label for="request" class="sr-only">Request</label>
         <div class="prompt-row">
-          <textarea id="request" maxlength="500" rows="1" placeholder="Describe your next beat…" required></textarea>
+          <div class="request-input">
+            <textarea id="request" maxlength="500" rows="1" placeholder="Describe your next beat…" required></textarea>
+            <p id="request-status" class="request-status" role="status">Ready when you are.</p>
+          </div>
           <div class="prompt-actions">
             <button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Tell Jev (⌘ Enter)">Tell Jev</button>
             <button id="record" type="button" aria-pressed="false">Hold to speak</button>
@@ -72,7 +75,6 @@
         <button type="button" data-branch="undo">Undo the last change</button>
         <button type="button" data-branch="recorded_rhythm">Use my beatbox rhythm</button>
       </div>
-      <div class="request-status"><span id="request-status" role="status">Ready when you are.</span></div>
     </section>
     <div class="session-footer">
       <section id="demo-studio" class="demo-studio" aria-label="Local demo tools" hidden>
