@@ -81,12 +81,12 @@ function buildRootQuestions() {
     Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { meaning: branch.description }]),
   );
   const focus = [
-    "Copy/duplicate this bar, beat, or selection selects duplicate: insert one exact copy of the highlighted area after itself, or double the groove if nothing is selected. Copying to a specific destination, multiple copies, or only part of the highlighted area is unsupported. ",
+    "Copy/duplicate this bar, beat, or selection selects duplicate: insert one exact copy of the highlighted area after itself, or double the groove if nothing is selected or the request explicitly says the whole thing/entire pattern. Copying to a specific destination, multiple copies, or only part of the highlighted area is unsupported. ",
     "Clear every note in the whole pattern or start empty selects clear_pattern; clearing only an active highlighted area selects clear_selection; never generate note-by-note deletions for this.",
     "Another/different beat, 'no, something else', 'try again', and 'shuffle funk' select shuffle_preset.",
     "Requests for regular quarter/eighth/sixteenth notes or quarter/eighth triplet groups on one drum select fill_rhythm, including '16ths on the hi-hats', '16th hats on beat 2', and 'do it on beats 2, 3, 4 as well' following a rhythm fill. This takes precedence over edit_pattern. Relative volume changes still select edit_pattern.",
     "A request to nudge a hit 'just a hair', 'a touch', or 'just slightly' early or late selects edit_pattern. So does moving a hit a little earlier or later; the editor decides the timing amount.",
-    "A speech-only request for a complete genre/style groove or a simple backbeat selects load_preset; edits to specific notes or instruments select edit_pattern. A request to reproduce an accompanying demonstration selects recorded_rhythm instead of load_preset, even if it begins with give me a beat.",
+    "A speech-only request for a complete genre/style groove, a simple backbeat, or a simple kick-and-snare starter ('give me a simple kick and snare') selects load_preset; edits to specific notes or instruments in the existing groove select edit_pattern. A request to reproduce an accompanying demonstration selects recorded_rhythm instead of load_preset, even if it begins with give me a beat.",
     "If recording is present, inspect recording.transcript, recording.words and recording.hit_onsets_seconds together. The transcript can OMIT the entire beatbox demonstration. An introduction such as give me a beat like... followed by a sequence of measured hits selects recorded_rhythm, not a generic preset. Word timestamps are approximate: Whisper can stretch the final word across the demonstration. Pure beatboxing also selects recorded_rhythm. Hit count alone does not establish beatboxing because speech produces transients too. Speech-only instructions such as can you swing it or load a funk beat select their normal branches. Corrections to prior take notes use edit_pattern.",
     "Requests like 'Undo that', 'undo', 'revert the last change' and 'take that back' select undo.",
     "Undo restores the complete latest change locally; never route these to note editing.",
@@ -109,7 +109,6 @@ function buildKitQuestions() {
     meaning: "Explicitly requests an unavailable kit (including LinnDrum or 909), individual drum sound replacement, or a capability beyond whole-kit selection.",
   };
   const focus = [
-    "Copy/duplicate this bar, beat, or selection selects duplicate: insert one exact copy of the highlighted area after itself, or double the groove if nothing is selected. Copying to a specific destination, multiple copies, or only part of the highlighted area is unsupported. ",
     "A generic request for a different kit selects another_kit. It is supported; do not select keep_current or the current kit. No particular sound preference is required.",
     "Explicit kit names win. '505' means TR-505. 'Acoustic' or 'natural' means Acoustic.",
     "For generic 'more modern/electronic' from Acoustic choose 808 as this demo's default.",
@@ -143,6 +142,14 @@ function buildTempoQuestions() {
 
 // Question builders for the decision nodes in REQUEST_TREE. Local branches need no questions.
 export const REQUEST_QUESTIONS = Object.freeze({
+  duplicate_scope: {
+    id: "duplicate_scope",
+    buildQuestions: () => selectionQuestion("Should this duplication copy the highlighted selection or the entire pattern?", "The user has a highlighted selection. Explicit whole-pattern wording overrides it: 'duplicate this whole thing', 'copy the entire groove', 'double the whole beat', or 'duplicate everything' chooses whole_pattern. 'Copy this', 'duplicate this section', 'copy the selection', and 'this whole selection' choose selected. 'Whole' applied to a selection or section still means that selection.", {
+      selected: "Copy only the highlighted lanes and beat range",
+      whole_pattern: "Copy every lane and bar of the complete groove, ignoring the highlight",
+    }),
+    validate: (answers: RequestAnswers) => nodeOutcome("duplicate_scope", answers),
+  },
   root: {
     id: "root",
     buildQuestions: buildRootQuestions,
@@ -166,7 +173,7 @@ export const REQUEST_QUESTIONS = Object.freeze({
 });
 
 export function validRequestState(state: unknown, nodeId = "root"): state is RequestState {
-  if (nodeId === "change_swing" || nodeId === "change_tempo") return hasKeys(state, ["request"])
+  if (nodeId === "change_swing" || nodeId === "change_tempo" || nodeId === "duplicate_scope") return hasKeys(state, ["request"])
     && boundedText(state.request, 500) && Boolean(state.request.trim());
   if (!hasKeys(state, ["request", "kit_id", "recent_history"], ["recording"])) return false;
   if (Object.hasOwn(state, "recording") && !validRecordingContext(state.recording)) return false;

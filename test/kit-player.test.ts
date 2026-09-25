@@ -6,7 +6,7 @@ import { createPatternPlayer } from "../src/frontend/pattern/audio.js";
 
 const pattern = (kit: string): Pattern => ({ kit_id: kit, bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [1, 16].map((slot, index) => ({ id: `note_${index + 1}`, instrument: "kick", tick: (slot - 1) * 240, bar: 1, velocity: 96 })) });
 
-function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
+function harness(t: TestContext, fetchOverride?: (url: string) => unknown, manifest = { families: { kick: ["kick.wav"], hat_open: ["open.wav"], hat_closed: ["closed.wav"], tom_low: ["tom.wav"] } } as { families: Record<string, string[]> }) {
   const originalWindow = globalThis.window;
   const originalFetch = globalThis.fetch;
   const hits: { time: number; url: string; gain: number }[] = [];
@@ -28,13 +28,46 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
     const path = String(url);
     fetched.push(path);
     if (fetchOverride) await fetchOverride(path);
-    if (path.endsWith("manifest.json")) return Response.json({ families: { kick: ["kick.wav"], hat_open: ["open.wav"], hat_closed: ["closed.wav"], tom_low: ["tom.wav"] } });
+    if (path.endsWith("manifest.json")) return Response.json(manifest);
     // Minimal fetch/audio mocks carry the sample URL through decoding.
     return { ok: true, arrayBuffer: async () => path } as unknown as Response;
   };
   t.after(() => { globalThis.window = originalWindow; globalThis.fetch = originalFetch; });
   return { hits, stops, fetched, tick: (time: number) => { context.currentTime = time; tick(); } };
 }
+
+test("acoustic ghost notes retain soft dynamics instead of being boosted within each layer", async t => {
+  const h = harness(t, undefined, { families: { snare_center: ["snare-1.wav", "snare-2.wav", "snare-3.wav", "snare-4.wav", "snare-5.wav"] } });
+  const player = createPatternPlayer();
+  const beat: Pattern = { ...pattern("acoustic"), notes: [31, 119, 127].map((velocity, index) => ({
+    id: `snare_${index}`, instrument: "snare", bar: 1, tick: index * 240, velocity,
+  })) };
+  await player.start(beat, 120);
+  h.tick(.3);
+  // SFZ's default velocity curve: soft strokes stay soft across sample changes.
+  assert.ok(Math.abs(h.hits[0].gain - 0.059582) < 0.000001);
+  assert.ok(Math.abs(h.hits[1].gain - 0.877984) < 0.000001);
+  assert.equal(h.hits[2].gain, 1);
+  player.stop();
+});
+
+test("acoustic sample changes follow Black Pearl's authored velocity boundaries", async t => {
+  const h = harness(t, undefined, { families: { kick: ["kick-1.wav", "kick-2.wav", "kick-3.wav", "kick-4.wav", "kick-5.wav"] } });
+  const player = createPatternPlayer();
+  const velocities = [26, 27, 52, 53, 77, 78, 102, 103];
+  const beat: Pattern = { ...pattern("acoustic"), notes: velocities.map((velocity, index) => ({
+    id: `kick_${index}`, instrument: "kick", bar: 1, tick: index * 240, velocity,
+  })) };
+  await player.start(beat, 120);
+  h.tick(.95);
+  assert.deepEqual(h.hits.map(hit => hit.url), [
+    "/assets/black-pearl/kick-1.wav", "/assets/black-pearl/kick-2.wav",
+    "/assets/black-pearl/kick-2.wav", "/assets/black-pearl/kick-3.wav",
+    "/assets/black-pearl/kick-3.wav", "/assets/black-pearl/kick-4.wav",
+    "/assets/black-pearl/kick-4.wav", "/assets/black-pearl/kick-5.wav",
+  ]);
+  player.stop();
+});
 
 test("one scheduling window keeps old-kit hits before and new-kit hits after the boundary", async t => {
   const h = harness(t);

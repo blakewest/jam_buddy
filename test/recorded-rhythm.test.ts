@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPatternState } from "../src/core/pattern/state.js";
+import { SUPPORTED_METERS } from "../src/core/pattern/musical-time.js";
 import { eventsForWindow } from "../src/core/pattern/audio-schedule.js";
 import { tempoCandidates, mapRecording, applyRecording } from "../src/core/recording/rhythm.js";
 import { recordUndoUnit, undoLastChange } from "../src/core/pattern/undo.js";
@@ -98,4 +99,49 @@ test("two suspect retriggers do not stretch a two-bar take to 145 BPM", () => {
   const mapped = mapRecording({ hits: onsets.map(onset_seconds => ({ onset_seconds, instrument: "kick" })), start_context_seconds: 0, transport, mode: "replace", tempo_bpm: candidates[0].tempo_bpm, start_seconds: 1.96, rotation_slots: 0, instrument: "automatic" });
   assert.equal(mapped.bars, 2);
   assert.equal(mapped.notes[0].tick, 0);
+});
+
+test("addition preserves nearby humanized notes, including across the loop seam", () => {
+  const before = createPatternState({ notes: [
+    { id: "note_1", instrument: "kick", bar: 1, tick: 3820, velocity: 90 },
+    { id: "note_2", instrument: "snare", bar: 1, tick: 985, velocity: 45 },
+  ] });
+  const result = applyRecording(before, { mode: "add", bars: 1, tempo_bpm: 120, notes: [
+    { instrument: "kick", bar: 1, tick: 0, velocity: 64 },
+    { instrument: "snare", bar: 1, tick: 960, velocity: 64 },
+    { instrument: "snare", bar: 1, tick: 1200, velocity: 64 },
+    { instrument: "closed_hat", bar: 1, tick: 960, velocity: 64 },
+  ] }, "take", "add this");
+  assert.equal(result.state.pattern.notes.length, 4);
+  assert.deepEqual(result.state.pattern.notes.slice(0, 2), before.pattern.notes);
+  assert.deepEqual(result.state.recent_take?.note_ids, ["note_3", "note_4"]);
+  assert.match(result.result.history_entry.applied_changes[0], /2/);
+});
+
+test("recording to a swung groove uses the audible grid, without applying swing twice", () => {
+  const swungTransport = { ...transport, playing: true, swing_percent: 75, origin_context_seconds: 0, output_latency_seconds: 0, input_correction_ms: 0 };
+  const mapped = mapRecording({ hits: [0, .375, .5, .875].map(onset_seconds => ({onset_seconds, instrument: "closed_hat"})), start_context_seconds: 0, transport: swungTransport, mode: "add", tempo_bpm: 120, start_seconds: 0, rotation_slots: 0, instrument: "automatic" });
+  assert.deepEqual(mapped.notes.map(note => note.tick), [0, 480, 960, 1440]);
+  const after = applyRecording(createPatternState({ swing_percent: 75 }), mapped, "swing", "play this");
+  assert.deepEqual(eventsForWindow(after.state.pattern, 120, 0, 1).map(hit => hit.time), [0, .375, .5, .875]);
+});
+
+test("a replacement recorded while stopped resets old swing instead of warping the new take", () => {
+  const stoppedTransport = {...transport, swing_percent: 75};
+  const mapped = mapRecording({ hits, start_context_seconds: 0, transport: stoppedTransport, mode: "replace", tempo_bpm: 120, start_seconds: 0, rotation_slots: 0, instrument: "automatic" });
+  const result = applyRecording(createPatternState({ swing_percent: 75 }), mapped, "straight", "new beat");
+  assert.equal(result.state.pattern.swing_percent, 50);
+});
+
+test("swing-aware placement round-trips across meters and loop boundaries", () => {
+  for (const meter of SUPPORTED_METERS) {
+    for (const swing_percent of [50, 65, 85]) {
+      const barTicks = meter.numerator * 960 * 4 / meter.denominator;
+      const state = createPatternState({ bars: 2, meter, swing_percent, notes: Array.from({ length: barTicks * 2 / 240 }, (_, i) => ({ id: `note_${i + 1}`, instrument: "closed_hat", bar: Math.floor(i * 240 / barTicks) + 1, tick: i * 240 % barTicks, velocity: 64 })) });
+      const duration = barTicks * 2 / 1920;
+      const observed = eventsForWindow(state.pattern, 120, duration, duration * 2).map(hit => ({ onset_seconds: hit.time, instrument: hit.instrument }));
+      const mapped = mapRecording({ hits: observed, start_context_seconds: 0, transport: { ...transport, playing: true, bars: 2, meter, swing_percent, origin_context_seconds: 0, output_latency_seconds: 0, input_correction_ms: 0 }, mode: "add", tempo_bpm: 120, start_seconds: 0, rotation_slots: 0, instrument: "automatic" });
+      assert.deepEqual(mapped.notes.map(note => [note.bar, note.tick]), state.pattern.notes.map(note => [note.bar, note.tick]), `${meter.numerator}/${meter.denominator} swing ${swing_percent}`);
+    }
+  }
 });

@@ -12,13 +12,26 @@ test("simple backbeat has only kick on 1/3, snare on 2/4, and eighth-note hats",
   assert.deepEqual(beat.notes.filter(n => n.instrument === "kick").map(n => n.tick), [0, 1920]);
   assert.deepEqual(beat.notes.filter(n => n.instrument === "snare").map(n => n.tick), [960, 2880]);
   assert.deepEqual(beat.notes.filter(n => n.instrument === "closed_hat").map(n => n.tick), [0, 480, 960, 1440, 1920, 2400, 2880, 3360]);
-  assert.deepEqual(filterPresets({ feels: ["simple", "straight"] }).map(p => p.id), ["simple_backbeat"]);
+  assert.deepEqual(filterPresets({ feels: ["simple", "straight"] }).map(p => p.id), ["simple_backbeat", "simple_kick_snare"]);
 });
 
-test("the active catalog is exactly the ten curated grooves plus Simple Backbeat", () => {
-  assert.equal(PRESETS.length, 11);
+test("loading simple kick and snare replaces the beat with four hits and no hats", () => {
+  const initial = loadPreset(createPatternState(), presetById("simple_backbeat"), "backbeat");
+  const loaded = loadPreset(initial, presetById("simple_kick_snare"), "give me a simple kick and snare");
+  assert.equal(loaded.pattern.bars, 1);
+  assert.equal(loaded.tempo_bpm, 100);
+  assert.deepEqual(loaded.pattern.notes.map(({ instrument, bar, tick }) => ({ instrument, bar, tick })), [
+    { instrument: "kick", bar: 1, tick: 0 },
+    { instrument: "kick", bar: 1, tick: 1920 },
+    { instrument: "snare", bar: 1, tick: 960 },
+    { instrument: "snare", bar: 1, tick: 2880 },
+  ]);
+});
+
+test("the active catalog is exactly the ten curated grooves plus two simple starters", () => {
+  assert.equal(PRESETS.length, 12);
   const approved = CURATED_GROOVE_IDS.map(id => AUDITION_GROOVES.find(g => g.id === id)!.source_id).sort();
-  assert.deepEqual(PRESETS.filter(p => p.id !== "simple_backbeat").map(p => p.source.id).sort(), approved);
+  assert.deepEqual(PRESETS.filter(p => !["simple_backbeat", "simple_kick_snare"].includes(p.id)).map(p => p.source.id).sort(), approved);
   for (const id of ["rock_straight", "rock_waltz", "electronic_house", "disco_floor", "punk_fast", "jazz_brush"]) assert.equal(presetById(id), null);
   assert.ok(PRESETS.every(validatePreset));
 });

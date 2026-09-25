@@ -119,3 +119,23 @@ test("a rounder kick after silence is not a tail of the preceding clickier kick"
   for (let i = 0; i < rate * 0.025; i++) samples[Math.round(0.2 * rate) + i] += 0.15 * Math.exp(-i / (rate * 0.01)) * Math.sin(2 * Math.PI * 1200 * i / rate);
   assert.deepEqual(analyzeTake(samples, rate).map(hit => [Math.round(hit.onset_seconds * 100), hit.instrument]), [[20, "kick"], [40, "kick"]]);
 });
+
+test("a tiny quiet gap cannot bypass minimum attack spacing", () => {
+  const rate = 48000;
+  const samples = new Float32Array(rate);
+  for (const start of [0.2, 0.225]) {
+    for (let i = 0; i < rate * 0.003; i++) samples[Math.round(start * rate) + i] = 0.4 * Math.sin(2 * Math.PI * 6000 * i / rate);
+  }
+  const hits = analyzeTake(samples, rate);
+  assert.equal(hits.length, 1);
+  assert.ok(Math.abs(hits[0].onset_seconds - 0.2) < 0.005);
+});
+
+test("a nearby snare does not contaminate the preceding kick's classification", () => {
+  const rate = 48000;
+  const samples = new Float32Array(rate);
+  for (const [start, duration, frequency, amplitude] of [[0.2, 0.03, 120, 0.25], [0.24, 0.07, 1200, 0.4]]) {
+    for (let i = 0; i < rate * duration; i++) samples[Math.round(start * rate) + i] += amplitude * Math.sin(2 * Math.PI * frequency * i / rate);
+  }
+  assert.deepEqual(analyzeTake(samples, rate).map(hit => hit.instrument), ["kick", "snare"]);
+});

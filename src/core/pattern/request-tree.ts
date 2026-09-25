@@ -9,13 +9,14 @@ import type { Candidate, HistoryEntry, PatternChange, PatternState } from "./sta
 import type { PatternPass, PatternPlan, PatternRunResult } from "./runner.js";
 
 export type RequestBranchId = "recorded_rhythm" | "fill_rhythm" | "change_swing" | "change_tempo" | "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern" | "clear_selection" | "duplicate";
-export type RequestQuestionId = "root" | "change_kit" | "change_swing" | "change_tempo";
+export type RequestQuestionId = "root" | "change_kit" | "change_swing" | "change_tempo" | "duplicate_scope";
 export type TempoAction = "increase" | "decrease" | "set_exact" | "unsupported";
 export type NodeAnswer = { selection?: { type: "choice"; choice: string } };
 export type NodeOutcome =
   | { next_node: RequestBranchId }
   | { handler: "change_kit"; selection: string }
   | { handler: "change_swing"; selection: SwingAction }
+  | { handler: "duplicate_scope"; selection: "selected" | "whole_pattern" }
   | { handler: "change_tempo"; selection: TempoAction };
 export type NodeDecision = {
   answers: NodeAnswer;
@@ -106,9 +107,9 @@ export const REQUEST_TREE = {
         description: "switch the whole drum kit",
         execute: changeKitBranch,
       },
-      load_preset: { description: "load a complete beat preset by genre or style", execute: (context: BranchContext) => grooveBranch(context, "load_preset") },
+      load_preset: { description: "load a beat preset by genre or style, including a simple kick-and-snare starter", execute: (context: BranchContext) => grooveBranch(context, "load_preset") },
       shuffle_preset: { description: "shuffle to a different beat, including 'no, something else'", execute: (context: BranchContext) => grooveBranch(context, "shuffle_preset") },
-      duplicate: { description: "insert one exact copy of the highlighted selection immediately after it, shifting later hits forward; with no selection, double the whole groove; specific destinations, multiple copies and partial source instructions are unsupported", execute: duplicateBranch },
+      duplicate: { description: "insert one exact copy of the highlighted selection immediately after it, shifting later hits forward; with no selection or an explicit whole-pattern request, double the whole groove; specific destinations, multiple copies and partial source instructions are unsupported", execute: duplicateBranch },
       clear_selection: { description: "remove every hit in the highlighted area only; requires an active selection and a request to clear this section", execute: clearSelectionBranch },
       clear_pattern: { description: "clear every note and start with an empty beat", execute: (context: BranchContext) => grooveBranch(context, "clear_pattern") },
       undo: {
@@ -127,6 +128,7 @@ export const QUESTION_CHOICES = {
   root: Object.keys(REQUEST_TREE.root.children),
   change_swing: Object.keys(SWING_CHOICES),
   change_tempo: ["increase", "decrease", "set_exact", "unsupported"],
+  duplicate_scope: ["selected", "whole_pattern"],
   change_kit: [...KITS.map(kit => kit.id), "another_kit", "keep_current", "unsupported"],
 };
 
@@ -145,6 +147,7 @@ export function nodeOutcome(questionId: RequestQuestionId, answers: NodeAnswer):
   if (questionId === "root") return { next_node: answer.choice as RequestBranchId };
   if (questionId === "change_swing") return { handler: "change_swing", selection: answer.choice as SwingAction };
   if (questionId === "change_tempo") return { handler: "change_tempo", selection: answer.choice as TempoAction };
+  if (questionId === "duplicate_scope") return { handler: "duplicate_scope", selection: answer.choice as "selected" | "whole_pattern" };
   return { handler: "change_kit", selection: answer.choice };
 }
 
@@ -235,8 +238,13 @@ async function changeKitBranch(context: BranchContext): Promise<CommandResult> {
   return changeKit(context.state, kitId, context.request);
 }
 
-function duplicateBranch({ state, request, selection }: BranchContext): CommandResult {
+async function duplicateBranch({ state, request, selection, ask }: BranchContext): Promise<CommandResult> {
   if (selection && !validSelection(selection, state.pattern)) throw new Error("Invalid beat selection.");
+  if (selection) {
+    const scope = await ask("duplicate_scope");
+    if (!("handler" in scope) || scope.handler !== "duplicate_scope") throw new Error("Invalid duplicate scope.");
+    if (scope.selection === "whole_pattern") selection = undefined;
+  }
   const { pattern } = state;
   const source = selection ?? { instruments: [...INSTRUMENTS], start_beat: 0, end_beat: pattern.bars * pattern.meter.numerator, beats_per_bar: pattern.meter.numerator };
   const length = source.end_beat - source.start_beat;
@@ -318,7 +326,7 @@ export async function runPatternCommand({ initialState, request, decideNode, edi
   const state = createPatternState(initialState);
   const routing: RouteDecision[] = [];
   const ask = async (questionId: RequestQuestionId): Promise<NodeOutcome> => {
-    const sentState = questionId === "change_swing" || questionId === "change_tempo"
+    const sentState = questionId === "change_swing" || questionId === "change_tempo" || questionId === "duplicate_scope"
       ? { request }
       : { ...(questionId === "root" && recording ? { recording } : {}), request, kit_id: state.pattern.kit_id, recent_history: state.recent_history };
     const decision = await decideNode(questionId, sentState);

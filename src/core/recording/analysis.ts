@@ -17,8 +17,8 @@ export const ANALYSIS_SETTINGS = Object.freeze({
 // Ported from Frederic's causal RMS, Hann-window band power, normalized spectral
 // balance and cumulative-energy shape calculations. Attack groups use the first
 // rising edge, not the weighted median: this is timing extraction, not perception.
-function bands(samples: Float32Array, sampleRate: number, start: number, seconds: number): number[] {
-  const count = Math.min(Math.round(seconds * sampleRate), samples.length - start);
+function bands(samples: Float32Array, sampleRate: number, start: number, seconds: number, end = samples.length): number[] {
+  const count = Math.max(0, Math.min(Math.round(seconds * sampleRate), end - start));
   const size = 2 ** Math.ceil(Math.log2(Math.max(2, count)));
   const real = new Float64Array(size);
   const imaginary = new Float64Array(size);
@@ -102,14 +102,24 @@ export function analyzeTake(samples: Float32Array, sampleRate: number): Detected
     quietFrames = 0;
   }
   if (starts.length > settings.max_hits) throw new Error("Too many attacks. Record a shorter demonstration.");
-  const candidates: DetectedHit[] = starts.map(frame => {
+  const onsets: { onset: number; frame: number }[] = [];
+  for (const frame of starts) {
     let onset = Math.max(0, frame * hop - support);
     const end = Math.min(samples.length, (frame + 1) * hop);
     while (onset < end && Math.abs(samples[onset]) < Math.max(background * 2, threshold * 0.25)) onset++;
-    const attack = bands(samples, sampleRate, onset, settings.attack_seconds);
-    const bodyStart = Math.min(samples.length, onset + Math.round(settings.attack_seconds * sampleRate));
-    const body = bands(samples, sampleRate, bodyStart, settings.body_seconds - settings.attack_seconds);
-    const bodyEnd = Math.min(samples.length, onset + Math.round(settings.body_seconds * sampleRate));
+    // Enforce spacing on refined sample positions, including after quiet gaps.
+    // Envelope frame rounding must not turn one consonant into two hits.
+    const previous = onsets.at(-1);
+    if (!previous || onset - previous.onset >= Math.round(settings.minimum_separation_seconds * sampleRate)) onsets.push({ onset, frame });
+  }
+  const candidates: DetectedHit[] = onsets.map(({ onset, frame }, index) => {
+    // Classify only this event: the next attack must not enter its FFT window.
+    const end = onsets[index + 1]?.onset ?? samples.length;
+    const attack = bands(samples, sampleRate, onset, settings.attack_seconds, end);
+    const bodyStart = Math.min(end, onset + Math.round(settings.attack_seconds * sampleRate));
+    const measuredBody = bands(samples, sampleRate, bodyStart, settings.body_seconds - settings.attack_seconds, end);
+    const body = measuredBody.some(power => power > 0) ? measuredBody : attack;
+    const bodyEnd = Math.min(end, onset + Math.round(settings.body_seconds * sampleRate));
     let energy = 0;
     for (let i = onset; i < bodyEnd; i++) energy += samples[i] ** 2;
     let cumulative = 0, median = onset;

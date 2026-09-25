@@ -38,10 +38,23 @@
     </div>
     <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button></div>
     <section class="prompt" aria-labelledby="prompt-heading">
-      <div class="section-heading"><h2 id="prompt-heading" class="sr-only">Ask Jev</h2><span id="pending" class="pending" hidden>Applies next phrase</span></div>
+      <div class="section-heading"><h2 id="prompt-heading" class="sr-only">Tell Jev</h2><span id="pending" class="pending" hidden>Applies next beat</span></div>
       <form id="request-form">
         <label for="request" class="sr-only">Request</label>
-        <div class="prompt-row"><textarea id="request" maxlength="500" rows="1" placeholder="Describe your next beat…" required></textarea><div class="prompt-actions"><button id="record" type="button" aria-pressed="false">Hold to speak</button><button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Ask Jev (⌘ Enter)">Ask Jev</button></div></div>
+        <div class="prompt-row">
+          <textarea id="request" maxlength="500" rows="1" placeholder="Describe your next beat…" required></textarea>
+          <div class="prompt-actions">
+            <button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Tell Jev (⌘ Enter)">Tell Jev</button>
+            <button id="record" type="button" aria-pressed="false">Hold to speak</button>
+            <div class="microphone-row">
+              <div class="microphone-control">
+                <svg class="microphone-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>
+                <select id="microphone" aria-label="Microphone input"><option value="">System default</option></select>
+              </div>
+              <button id="microphone-enable" type="button">Choose microphone</button>
+            </div>
+          </div>
+        </div>
       </form>
       <button id="record-cancel" class="record-cancel" type="button" hidden>Cancel recording</button>
       <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a little swing</button><button type="button">Swing it harder</button><button type="button">Make the snare louder</button></div>
@@ -49,6 +62,11 @@
     </section>
     <div class="session-footer">
       <button id="new-session" type="button">＋ New session</button>
+      <section class="demo-studio" aria-label="Demo recording">
+        <div class="demo-toolbar"><span class="demo-label">Your demo</span><button id="demo-record" type="button">● Record demo</button><button id="demo-play" type="button" disabled>▶ Play demo</button><button id="demo-download" type="button" disabled>Download</button><button id="demo-load" type="button">Load demo</button><input id="demo-file" type="file" accept=".json,application/json" hidden><span id="demo-time" class="count"></span></div>
+        <p id="demo-status" role="status">Record your commands and beat, then replay the saved performance.</p>
+        <p id="demo-caption" class="demo-caption" hidden></p>
+      </section>
       <details class="session-details" open>
         <summary id="history-heading">Session activity</summary>
         <div id="history-list" class="history-list"><p class="empty">Every groove starts somewhere. Your first move will appear here.</p></div>

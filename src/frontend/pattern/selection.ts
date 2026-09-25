@@ -4,7 +4,7 @@ import { selectionFromCells, selectionRegions, validSelection } from "../../core
 import type { BeatSelection } from "../../core/pattern/selection.js";
 
 type Cell = { lane: number; beat: number };
-export function createGridSelection(grid: HTMLElement, summary: HTMLElement, clear: HTMLButtonElement, pattern: () => Pattern, locked: () => boolean) {
+export function createGridSelection(grid: HTMLElement, summary: HTMLElement, clear: HTMLButtonElement, pattern: () => Pattern, locked: () => boolean, onChange = () => {}) {
   let selected: BeatSelection | null = null;
   let anchor: Cell | null = null;
   let cursor: Cell = { lane: 0, beat: 0 };
@@ -32,7 +32,7 @@ export function createGridSelection(grid: HTMLElement, summary: HTMLElement, cle
     summary.parentElement?.classList.toggle("has-selection", !!selected);
     grid.setAttribute("aria-label", selected ? `Selected ${summary.textContent}. Arrow keys move; Shift and arrows extend; Escape clears.` : "Drum pattern. Drag to select, or use arrow keys; Shift and arrows extend.");
   }
-  function reset() { selected = null; anchor = null; dragging = false; refresh(); }
+  function reset() { selected = null; anchor = null; dragging = false; refresh(); onChange(); }
   function cellAt(event: PointerEvent): Cell | null {
     const rows = [...grid.querySelectorAll<HTMLElement>(".pattern-lane")];
     const track = rows[0]?.querySelector(".lane-track")?.getBoundingClientRect();
@@ -45,6 +45,7 @@ export function createGridSelection(grid: HTMLElement, summary: HTMLElement, cle
     cursor = cell;
     selected = selectionFromCells(anchor ?? cell, cell, pattern().meter.numerator);
     refresh();
+    onChange();
   }
   grid.addEventListener("pointerdown", event => {
     if (event.button !== 0 || locked() || !(event.target instanceof Element) || !event.target.closest(".lane-track")) return;
@@ -64,7 +65,7 @@ export function createGridSelection(grid: HTMLElement, summary: HTMLElement, cle
     if (cell) select(cell);
   });
   grid.addEventListener("pointerup", () => { dragging = false; });
-  grid.addEventListener("pointercancel", () => { dragging = false; selected = previous; refresh(); });
+  grid.addEventListener("pointercancel", () => { dragging = false; selected = previous; refresh(); onChange(); });
   grid.addEventListener("lostpointercapture", () => { dragging = false; });
   grid.addEventListener("keydown", event => {
     if (locked()) return;
@@ -79,5 +80,5 @@ export function createGridSelection(grid: HTMLElement, summary: HTMLElement, cle
     select(next);
   });
   clear.addEventListener("click", () => { if (!locked()) reset(); });
-  return { refresh, clear: reset, snapshot: () => selected ? structuredClone(selected) : null };
+  return { refresh, clear: reset, set: (value: BeatSelection | null) => { selected = value ? structuredClone(value) : null; anchor = null; refresh(); }, snapshot: () => selected ? structuredClone(selected) : null };
 }

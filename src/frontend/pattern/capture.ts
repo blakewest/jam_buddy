@@ -3,6 +3,8 @@ import type { RecordedTake, TransportSnapshot } from "../../core/recording/captu
 
 export function createRecorder(options: {
   context: () => Promise<AudioContext>;
+  deviceId?: () => string;
+  recordingDestination?: () => AudioNode | undefined;
   snapshot: () => TransportSnapshot;
   onStatus: (status: "idle" | "initializing" | "recording") => void;
   onTake: (take: RecordedTake) => void;
@@ -53,7 +55,8 @@ export function createRecorder(options: {
     try {
       context = await options.context();
       if (current !== version) return;
-      const acquired = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      const deviceId = options.deviceId?.();
+      const acquired = await navigator.mediaDevices.getUserMedia({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       if (current !== version) { acquired.getTracks().forEach(track => track.stop()); return; }
       stream = acquired;
       if (!loaded.has(context)) { await context.audioWorklet.addModule("/frontend/pattern/capture-worklet.js"); loaded.add(context); }
@@ -63,6 +66,8 @@ export function createRecorder(options: {
       transport = options.snapshot();
       node = new AudioWorkletNode(context, "take-capture");
       source = context.createMediaStreamSource(stream);
+      const recordingDestination = options.recordingDestination?.();
+      if (recordingDestination) source.connect(recordingDestination);
       muted = context.createGain(); muted.gain.value = 0;
       source.connect(node); node.connect(muted); muted.connect(context.destination);
       node.port.onmessage = event => {
@@ -78,7 +83,10 @@ export function createRecorder(options: {
       context.addEventListener("statechange", stateListener);
       options.onStatus("recording");
       timer = setTimeout(release, 30000);
-    } catch (error) { if (current === version) fail(error); }
+    } catch (error) {
+      if (current === version) fail(error instanceof DOMException && ["NotFoundError", "OverconstrainedError"].includes(error.name)
+        ? new Error("That microphone is unavailable. Choose another microphone below Hold to speak.") : error);
+    }
   }
   function release() {
     if (!held && !node) return;

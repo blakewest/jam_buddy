@@ -13,6 +13,7 @@ const hats = (count: number, step: number, velocity = 62, offset = 0) => Array.f
 const GMD_SOURCES = Object.freeze(Object.fromEntries(AUDITION_GROOVES.map(groove => [groove.source_id, groove])));
 const AUTHORED_BPM: Readonly<Record<string, number>> = Object.freeze({
   simple_backbeat: 100,
+  simple_kick_snare: 100,
   pop_bright: 112,
   jazz_brush: 92,
   blues_six_eight: 72,
@@ -47,6 +48,7 @@ const CURATED_DETAILS: Readonly<Record<string, { name: string; genres: string[];
 
 const catalog = [
   preset("simple_backbeat", "Simple Backbeat", ["rock", "pop"], { numerator: 4, denominator: 4 }, ["simple", "straight"], [hit("kick", 0, 100), hit("kick", 1920, 100), hit("snare", 960, 104), hit("snare", 2880, 104), ...Array.from({ length: 8 }, (_, index) => hit("closed_hat", index * 480, 64))], "Basic one-bar 4/4 backbeat: kick on beats 1 and 3, snare on 2 and 4, steady eighth-note closed hats. No fills, ghost notes, or syncopation. Ideal for a simple or basic backbeat."),
+  preset("simple_kick_snare", "Simple Kick & Snare", ["rock", "pop"], { numerator: 4, denominator: 4 }, ["simple", "straight"], [hit("kick", 0, 100), hit("kick", 1920, 100), hit("snare", 960, 104), hit("snare", 2880, 104)], "Minimal one-bar 4/4 starter: only kick on beats 1 and 3 and snare on beats 2 and 4. No hi-hats, cymbals, fills, or other notes. Ideal for 'give me a simple kick and snare', 'just kick and snare', or a basic backbeat without hats; hats can be added separately."),
   preset("rock_straight", "Straight Rock", ["rock"], { numerator: 4, denominator: 4 }, ["driving", "straight"], [hit("snare", 12, 100), hit("kick", 16, 67), hit("snare", 468, 60), hit("snare", 744, 68), hit("kick", 970, 63), hit("snare", 974, 119), hit("kick", 1950, 64), hit("snare", 1962, 116), hit("open_hat", 2012, 19), hit("snare", 2462, 112), hit("kick", 2858, 64), hit("snare", 3208, 85), hit("snare", 3726, 102)], "Driving human-played rock backbeat", "drummer3/session1/10"),
   preset("rock_waltz", "Rock Waltz", ["rock"], { numerator: 3, denominator: 4 }, ["driving", "waltz"], [hit("closed_hat", 0, 95), hit("kick", 8, 82), hit("closed_hat", 438, 67), hit("snare", 464, 29), hit("kick", 680, 90), hit("closed_hat", 918, 65), hit("snare", 964, 125), hit("closed_hat", 1398, 70), hit("kick", 1652, 52), hit("closed_hat", 1886, 57), hit("kick", 1918, 53), hit("snare", 2160, 42), hit("closed_hat", 2360, 67), hit("kick", 2598, 46), hit("closed_hat", 2838, 67), hit("kick", 2846, 95)], "Human-played rock in three", "drummer1/session2/6"),
   preset("pop_bright", "Bright Pop", ["pop"], { numerator: 4, denominator: 4 }, ["bright", "straight"], [hit("kick", 0, 108), hit("kick", 1684, 86), hit("kick", 2398, 94), hit("snare", 960, 112), hit("snare", 2882, 114), ...hats(8, 480, 68, -3)], "Clean modern pop pulse"),
@@ -69,7 +71,7 @@ const catalog = [
 ];
 
 const curatedSources = new Set(CURATED_GROOVE_IDS.map(id => AUDITION_GROOVES.find(groove => groove.id === id)!.source_id));
-export const PRESETS = Object.freeze(catalog.filter(item => item.id === "simple_backbeat" || curatedSources.has(item.source.id ?? "")));
+export const PRESETS = Object.freeze(catalog.filter(item => item.id === "simple_backbeat" || item.id === "simple_kick_snare" || curatedSources.has(item.source.id ?? "")));
 
 export function validatePreset(item: Preset | null | undefined) {
   if (!item || typeof item.id !== "string" || typeof item.name !== "string" || !Array.isArray(item.genres) || !item.genres.length || !validMeter(item.meter) || !Number.isInteger(item.bars) || item.bars < 1 || item.bars > 8 || !Number.isInteger(item.tempo_bpm) || item.tempo_bpm < 40 || item.tempo_bpm > 240 || !Array.isArray(item.notes)) return false;

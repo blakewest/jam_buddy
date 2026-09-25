@@ -171,25 +171,13 @@ function microTiming(item: PatternNote, direction: number, bpm: number, swing: n
   return shiftedTiming(item, Math.round(quarterStart + rawWithin) - current, bars, meter);
 }
 
-function microDirection(request: string) {
-  const cue = /\b(?:just\s+)?a\s+(?:hair|touch)\s+(early|earlier|late|later)\b|\bjust\s+slightly\s+(early|earlier|late|later)\b/i.exec(request);
-  if (!cue) return 0;
-  return /^(early|earlier)$/i.test(cue[1] ?? cue[2]) ? -1 : 1;
-}
-
-function noteCandidate(answers: JevAnswers, item: PatternNote, order: number, bars: number, meter: Meter, bpm: number, swing: number, request: string): Candidate | null {
+function noteCandidate(answers: JevAnswers, item: PatternNote, order: number, bars: number, meter: Meter, bpm: number, swing: number): Candidate | null {
   const operation = answers[`${item.id}_operation`];
   if (!operation || operation.type !== "choice" || operation.choice === "no_op" || !["remove", "modify"].includes(operation.choice)) return null;
   const candidate: Candidate = { kind: operation.choice as "remove" | "modify", source: item.id, note_id: item.id, score: alterationConfidence(operation), order };
   if (operation.choice === "modify") {
     const requestedInstrument = choice(answers, `${item.id}_instrument`, "keep_current");
-    let timingChoice = choice(answers, `${item.id}_timing`, "no_change");
-    if (timingChoice === "earlier_10ms" || timingChoice === "later_10ms") {
-      const direction = timingChoice === "earlier_10ms" ? -1 : 1;
-      const requestedDirection = microDirection(request);
-      if (!requestedDirection) timingChoice = direction < 0 ? "earlier_sixteenth" : "later_sixteenth";
-      else if (requestedDirection !== direction) timingChoice = "no_change";
-    }
+    const timingChoice = choice(answers, `${item.id}_timing`, "no_change");
     const timing = timingChoice === "earlier_10ms" || timingChoice === "later_10ms"
       ? microTiming(item, timingChoice === "earlier_10ms" ? -1 : 1, bpm, swing, bars, meter)
       : shiftedTiming(item, timingDelta(timingChoice), bars, meter);
@@ -238,7 +226,7 @@ export function applyPatternAnswers(inputState: PatternState, answers: JevAnswer
     if (candidate) candidates.push(candidate);
   }
   state.pattern.notes.forEach((item, index) => {
-    const candidate = noteCandidate(answers, item, index + INSTRUMENTS.length, state.pattern.bars, state.pattern.meter, state.tempo_bpm, state.pattern.swing_percent ?? 50, request);
+    const candidate = noteCandidate(answers, item, index + INSTRUMENTS.length, state.pattern.bars, state.pattern.meter, state.tempo_bpm, state.pattern.swing_percent ?? 50);
     if (candidate) candidates.push(candidate);
   });
   candidates.sort((left, right) => right.score - left.score || left.order - right.order);

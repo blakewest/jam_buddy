@@ -1,3 +1,4 @@
+import { normalizedSwing, swungTick } from "../pattern/swing.js";
 import { ticksPerBar } from "../pattern/musical-time.js";
 import type { Meter } from "../pattern/musical-time.js";
 import { appendHistory, createPatternState } from "../pattern/state.js";
@@ -8,7 +9,7 @@ import type { TransportSnapshot } from "./capture.js";
 export type TimingCandidate = { tempo_bpm: number; grid_error: number; uncertain: boolean; musical?: ReturnType<typeof scoreInterpretation> };
 export type RhythmHit = { onset_seconds: number; instrument: string };
 export type MappingOptions = { hits: RhythmHit[]; start_context_seconds: number; transport: TransportSnapshot; mode: "add" | "replace"; tempo_bpm: number; start_seconds: number; rotation_slots: number; instrument: "automatic" | Instrument };
-export type MappedRecording = { notes: Omit<PatternNote, "id">[]; bars: number; tempo_bpm: number; mode: "add" | "replace"; meter?: Meter };
+export type MappedRecording = { notes: Omit<PatternNote, "id">[]; bars: number; tempo_bpm: number; mode: "add" | "replace"; meter?: Meter; swing_percent?: number };
 const wrap = (value: number, length: number) => ((value % length) + length) % length;
 
 // Compare musical values, independent of object-property insertion order.
@@ -80,6 +81,20 @@ export function tempoCandidates(onsets: number[], currentTempo: number): TimingC
     return { ...candidate, uncertain: ambiguous };
   });
 }
+// Choose the closest audible sixteenth, including the current swing warp.
+function nearestSlot(tick: number, slotsPerBar: number, swing: number): number {
+  const center = Math.floor(tick / 240);
+  let nearest = center, error = Infinity;
+  // Swing moves a sixteenth by less than two grid cells at supported amounts.
+  for (let slot = center - 2; slot <= center + 2; slot++) {
+    const barStart = Math.floor(slot / slotsPerBar) * slotsPerBar * 240;
+    const audibleTick = barStart + swungTick(wrap(slot, slotsPerBar) * 240, swing);
+    const distance = Math.abs(tick - audibleTick);
+    if (distance <= error) { nearest = slot; error = distance; }
+  }
+  return nearest;
+}
+
 export function mapRecording(options: MappingOptions): MappedRecording {
   const { transport, mode, start_context_seconds, start_seconds, instrument } = options;
   const hits = options.hits.filter(hit => hit.onset_seconds >= start_seconds);
@@ -88,9 +103,10 @@ export function mapRecording(options: MappingOptions): MappedRecording {
   if (!Number.isFinite(tempo) || tempo < 30 || tempo > 360 || !Number.isFinite(start_seconds) || !Number.isInteger(options.rotation_slots)) throw new Error("Invalid rhythm controls.");
   const meter = transport.playing || mode === "add" ? transport.meter ?? { numerator: 4, denominator: 4 } : { numerator: 4, denominator: 4 };
   const slotsPerBar = ticksPerBar(meter) / 240;
-  const positions = hits.map(hit => Math.round((transport.playing
+  const swing = transport.playing || mode === "add" ? normalizedSwing(transport.swing_percent) : 50;
+  const positions = hits.map(hit => nearestSlot((transport.playing
     ? correctedContextTime(start_context_seconds, hit.onset_seconds, transport.output_latency_seconds, transport.input_correction_ms) - transport.origin_context_seconds
-    : hit.onset_seconds - hits[0].onset_seconds) * tempo / 15));
+    : hit.onset_seconds - hits[0].onset_seconds) * tempo * 960 / 60, slotsPerBar, swing));
   const bars = transport.playing || mode === "add" ? transport.bars : Math.floor(Math.max(...positions) / slotsPerBar) + 1;
   if (!transport.playing && mode === "replace" && bars > 4) throw new Error("Demonstration exceeds four bars. Choose a later start or record a shorter take.");
   const cells = new Set<string>();
@@ -104,7 +120,7 @@ export function mapRecording(options: MappingOptions): MappedRecording {
     cells.add(key);
     notes.push({ instrument: kind as Instrument, bar: Math.floor(position / slotsPerBar) + 1, tick: (position % slotsPerBar) * 240, velocity: 64 });
   });
-  return { notes, bars, tempo_bpm: tempo, mode, meter };
+  return { notes, bars, tempo_bpm: tempo, mode, meter, swing_percent: swing };
 }
 export function applyRecording(before: PatternState, mapped: MappedRecording, takeId: string, request: string): CommandResult {
   const state = createPatternState(before);
@@ -112,14 +128,23 @@ export function applyRecording(before: PatternState, mapped: MappedRecording, ta
   const notes = mapped.mode === "replace" ? [] : [...state.pattern.notes];
   if (mapped.mode === "replace") changes.push({ kind: "reset" });
   const ids: string[] = [];
+  const barTicks = ticksPerBar(mapped.meter ?? state.pattern.meter);
+  const loopTicks = mapped.bars * barTicks;
+  // Match the rhythm-fill tolerance: preserve a humanized existing hit within
+  // 60 ticks, including just before the loop seam, rather than doubling it.
+  const collisionToleranceTicks = 60;
   for (const note of mapped.notes) {
-    const existing = notes.find(item => item.instrument === note.instrument && item.bar === note.bar && item.tick === note.tick);
+    const existing = notes.find(item => {
+      if (item.instrument !== note.instrument) return false;
+      const distance = Math.abs((item.bar - note.bar) * barTicks + item.tick - note.tick);
+      return Math.min(distance, loopTicks - distance) <= collisionToleranceTicks;
+    });
     if (existing) continue;
     const after = { ...note, id: `note_${state.next_note_id++}` };
     notes.push(after); ids.push(after.id); changes.push({ kind: "add", after, note_id: after.id });
   }
-  const history = { request: request.slice(0, 500), applied_changes: [`${mapped.mode === "replace" ? "Replaced pattern with" : "Added"} recorded take: ${mapped.notes.length} cells, ${mapped.tempo_bpm} BPM.`], rejected_changes: [] };
-  state.pattern = { ...state.pattern, notes, bars: mapped.bars, meter: mapped.meter ?? state.pattern.meter };
+  const history = { request: request.slice(0, 500), applied_changes: [`${mapped.mode === "replace" ? "Replaced pattern with" : "Added"} recorded take: ${ids.length} new hits, ${mapped.tempo_bpm} BPM.`], rejected_changes: [] };
+  state.pattern = { ...state.pattern, notes, bars: mapped.bars, meter: mapped.meter ?? state.pattern.meter, swing_percent: mapped.swing_percent ?? state.pattern.swing_percent };
   state.tempo_bpm = mapped.tempo_bpm;
   state.recent_take = { id: takeId, note_ids: ids.slice(0, 256) };
   return { state: appendHistory(state, history), result: { applied_changes: changes, rejected_changes: [], ignored_changes: [], candidates: [], history_entry: history }, plan: null, passes: [], model: null, usage: {}, latency_ms: 0, question_count: 0 };
@@ -133,6 +158,7 @@ export function recordingDelta(before: Pattern, after: Pattern, beforeBpm?: numb
     else if (JSON.stringify(note) !== JSON.stringify(next)) changes.push({ kind: "modify", before: note, after: next, note_id: note.id });
   }
   for (const note of after.notes) if (!before.notes.some(item => item.id === note.id)) changes.push({ kind: "add", after: note, note_id: note.id });
+  if ((before.swing_percent ?? 50) !== (after.swing_percent ?? 50)) changes.push({ kind: "swing", before_swing: before.swing_percent ?? 50, after_swing: after.swing_percent ?? 50 });
   if (before.bars !== after.bars) changes.push({ kind: "resize", before_bars: before.bars, after_bars: after.bars, removed_notes: before.notes.filter(note => note.bar > after.bars).length });
   if (beforeBpm !== undefined && afterBpm !== undefined && beforeBpm !== afterBpm) changes.push({ kind: "tempo", before_bpm: beforeBpm, after_bpm: afterBpm });
   return changes;

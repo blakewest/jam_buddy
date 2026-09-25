@@ -20,7 +20,7 @@ General engineering conventions adapted from the Frederic project.
 - Preserve the existing pattern-edit planner and atomic edit loop as the `edit_pattern` branch. Add new capabilities as separate root branches rather than mixing their behavior into editing prompts.
 - Generate unsupported-request guidance from the registered root categories so the message stays consistent with actual capabilities.
 - Clear and shuffle are separate root branches. Clear executes locally; shuffle excludes the current preset and reuses the previous search filters for an unqualified request for another beat.
-- The active preset library is exactly the ten approved CURATED_GROOVE_IDS plus simple_backbeat. Search, selection, and shuffle must exclude all other legacy/demo presets.
+- The active preset library is exactly the ten approved CURATED_GROOVE_IDS plus simple_backbeat and simple_kick_snare. Search, selection, and shuffle must exclude all other legacy/demo presets.
 - Large pattern edits must narrow to an instrument/bar and then a note or addition before asking detailed edit questions. Never silently truncate candidate notes.
 - Relative velocity requests first use the structured edit interpreter: operation, instrument, beats, bars, and subdivisions in one call, without old history. Code applies the chosen delta to every matching note once, from its submitted velocity. Other requests fall back to the existing edit planner.
 - Enforce question count, total request size, state-plus-question size, and choice count budgets before every TypeSafe call. Treat byte budgets as conservative engineering limits, not exact token counts; surface context-limit failures clearly.

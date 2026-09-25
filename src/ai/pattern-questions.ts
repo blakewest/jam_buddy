@@ -71,9 +71,9 @@ const timingCriteria = {
   earlier_sixteenth: { direction: "earlier", interval: "one straight sixteenth note" },
   earlier_eighth_triplet: { direction: "earlier", interval: "one eighth-note triplet step" },
   earlier_sixteenth_triplet: { direction: "earlier", interval: "one sixteenth-note triplet step" },
-  earlier_10ms: { direction: "earlier", interval: "about 10 milliseconds", use_only_for: "Explicit micro timing: 'just a hair early', 'a touch early', or 'just slightly earlier'. Never choose for 'a little earlier'." },
+  earlier_10ms: { direction: "earlier", interval: "about 10 milliseconds", use_only_for: "Small nudge earlier: 'nudge it earlier', 'nudge it a little earlier', 'just a hair early', 'a touch early', or 'just slightly earlier'. An explicitly requested note subdivision instead uses that grid interval." },
   no_change: { direction: "unchanged", sixteenth_note_steps: 0 },
-  later_10ms: { direction: "later", interval: "about 10 milliseconds", use_only_for: "Explicit micro timing: 'just a hair late', 'a touch late', or 'just slightly later'. Never choose for 'a little later'." },
+  later_10ms: { direction: "later", interval: "about 10 milliseconds", use_only_for: "Small nudge later: 'nudge it later', 'nudge it a little later', 'just a hair late', 'a touch late', or 'just slightly later'. An explicitly requested note subdivision instead uses that grid interval." },
   later_sixteenth_triplet: { direction: "later", interval: "one sixteenth-note triplet step" },
   later_eighth_triplet: { direction: "later", interval: "one eighth-note triplet step" },
   later_sixteenth: { direction: "later", interval: "one straight sixteenth note" },
@@ -143,7 +143,7 @@ function noteQuestions(note: PatternJevState["pattern"]["parts"][Instrument][num
     },
     [`${note.id}_timing`]: {
       type: "choice",
-      instructions: instructions({ premise: "Assume this exact note will be modified rather than removed.", question: "How should its timing change to satisfy `request`?", grid: "Grid moves use note subdivisions and can cross bar lines. 'Move it a little earlier' or 'a little later' means a grid move, not a micro nudge. Choose an about-10ms micro move only for explicit 'just a hair', 'a touch', or 'just slightly' early or late. Movement wraps around the complete phrase." }),
+      instructions: instructions({ premise: "Assume this exact note will be modified rather than removed.", question: "How should its timing change to satisfy `request`?", grid: "'Nudge' earlier or later means one about-10ms micro timing adjustment, including 'nudge it a little earlier/later'. 'Just a hair', 'a touch', and 'just slightly' also mean micro timing. An explicit note interval takes priority: 'nudge it a sixteenth earlier' uses earlier_sixteenth. Without nudge or other micro wording, 'move it a little earlier' or 'a little later' uses a grid move. Movement wraps around the complete phrase." }),
       criteria: timingCriteria,
     },
     [`${note.id}_velocity`]: {

@@ -6,6 +6,7 @@ import { pitchForNote, sampleFamily } from "../../core/pattern/drum-pitches.js";
 
 const LOOKAHEAD_SECONDS = 0.1;
 const POLL_MS = 25;
+const BLACK_PEARL_VELOCITY_CEILINGS = [26, 52, 77, 102, 127];
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const sampleIndex = (velocity: number, count: number) => Math.min(count - 1, Math.floor((velocity - 1) * count / 127));
 const acousticFolder = (kitId = "acoustic") => kitId === "acoustic" ? "black-pearl" : "virtuosity";
@@ -56,6 +57,13 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
     const files = manifests.get(folder)?.families[family];
     if (!files?.length) throw new Error(`Missing drum sound: ${family}.`);
     const count = files.length;
+    if (kitId === "acoustic") {
+      const index = Math.min(count - 1, BLACK_PEARL_VELOCITY_CEILINGS.findIndex(ceiling => note.velocity <= ceiling));
+      // Match Black Pearl's SFZ regions and default amp_veltrack=100 curve.
+      // Dividing by a layer ceiling instead makes quiet rolls much too loud.
+      // https://sfzformat.com/opcodes/amp_veltrack/
+      return { url: `/assets/${folder}/${files[index]}`, gain: (note.velocity / 127) ** 2 };
+    }
     const ceiling = Math.ceil((sampleIndex(note.velocity, count) + 1) * 127 / count);
     return { url: `/assets/${folder}/${files[sampleIndex(note.velocity, count)]}`, gain: note.velocity / ceiling };
   }
@@ -244,13 +252,18 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
 
   return {
     async captureContext() { await unlock(); return context; },
+    connectRecording(destination: AudioNode) {
+      ensureContext();
+      output.connect(destination);
+      return () => output.disconnect(destination);
+    },
     snapshot(pattern: PlaybackPattern, inputCorrectionMs: number, bpm = activeBpm) {
       ensureContext();
       const clock = context.getOutputTimestamp?.();
       const outputLatency = clock?.performanceTime && typeof clock.contextTime === "number" && clock.contextTime > 0
         ? Math.max(0, context.currentTime - (clock.contextTime + (performance.now() - clock.performanceTime) / 1000))
         : (context.outputLatency ?? 0) + (context.baseLatency ?? 0);
-      return { playing, tempo_bpm: bpm, bars: pattern.bars, meter: { ...pattern.meter }, origin_context_seconds: originTime,
+      return { playing, tempo_bpm: bpm, bars: pattern.bars, meter: { ...pattern.meter }, swing_percent: pattern.swing_percent ?? 50, origin_context_seconds: originTime,
         captured_context_seconds: context.currentTime, output_latency_seconds: outputLatency,
         output_context_seconds: clock?.contextTime ?? context.currentTime - outputLatency,
         output_performance_ms: clock?.performanceTime ?? performance.now(), input_correction_ms: inputCorrectionMs };

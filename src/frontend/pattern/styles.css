@@ -117,3 +117,24 @@ footer { padding: 25px 2px 0; color: #779591; font-size: 10px; }.sr-only { posit
 .selection-summary + .prompt { margin-top: 8px; }
 #clear-selection { padding: 6px 9px; background: transparent; font-size: 10px; }
 #clear-selection[hidden] { display: none; }
+
+.microphone-row { grid-column: 2; min-width: 0; color: #91adaa; font-size: 11px; }
+.microphone-control { position: relative; }
+.microphone-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.microphone-row select { appearance: none; color-scheme: dark; display: block; min-width: 0; width: 100%; padding: 8px 25px 8px 31px; border: 1px solid #455f65; border-radius: 8px; background-color: #10242c; color: #c0d4cd; font-size: 11px; line-height: 1.4; text-overflow: ellipsis; cursor: pointer; background-image: linear-gradient(45deg, transparent 50%, #91adaa 50%), linear-gradient(135deg, #91adaa 50%, transparent 50%); background-position: calc(100% - 14px) 50%, calc(100% - 10px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
+.microphone-row select:hover:not(:disabled) { border-color: #688782; background-color: #1a2d34; }
+.microphone-row select:disabled { opacity: .5; cursor: default; }
+.microphone-row option { background: #10242c; color: #eaf2ee; }
+#microphone-enable { min-height: 0; min-width: 0; width: 100%; margin-top: 8px; padding: 6px 8px; background: transparent; font-size: 11px; }
+#microphone-enable[hidden] { display: none; }
+
+.demo-studio { margin: 0 0 22px; padding: 15px 16px; border: 1px solid #345057; border-radius: 12px; background: #172d35; }
+.demo-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.demo-label { font-size: 12px; font-weight: 700; margin-right: 6px; color: #c1d9d0; }
+.demo-toolbar button { padding: 8px 11px; }
+#demo-record.is-recording { border-color: #cc6674; background: #643a44; color: #ffe3e4; }
+#demo-play.is-playing { border-color: #c5e6b6; color: #c5e6b6; }
+#demo-time { margin-left: auto; font-variant-numeric: tabular-nums; }
+#demo-status { margin-top: 11px; font-size: 11px; line-height: 1.5; }
+.demo-caption { margin-top: 13px; padding-top: 12px; border-top: 1px solid #345057; color: #eaf2ee; font-size: 16px; line-height: 1.5; }
+.demo-caption[hidden] { display: none; }

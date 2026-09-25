@@ -12,7 +12,18 @@ const before = createPatternState({ bars: 2, notes: [
   { id: "note_4", instrument: "kick", bar: 2, tick: 960, velocity: 88 },
 ] });
 const selection: BeatSelection = { instruments: ["snare"], start_beat: 3, end_beat: 5, beats_per_bar: 4 };
-const decideNode = async () => ({ answers: { selection: { type: "choice" as const, choice: "duplicate" } } });
+const decideNode = async (node: string) => ({ answers: { selection: { type: "choice" as const, choice: node === "root" ? "duplicate" : "selected" } } });
+
+test("explicit whole-groove duplication overrides an empty highlighted lane", async () => {
+  const result = await runPatternCommand({ initialState: before, request: "Good. Duplicate this whole thing.",
+    selection: { instruments: ["closed_hat"], start_beat: 7, end_beat: 8, beats_per_bar: 4 },
+    decideNode: async node => ({ answers: { selection: { type: "choice", choice: node === "root" ? "duplicate" : "whole_pattern" } } }),
+  });
+  assert.equal(result.state.pattern.bars, 4);
+  assert.deepEqual(result.state.pattern.notes.slice(4).map(({ id, ...note }) => note), before.pattern.notes.map(({ id, ...note }) => ({ ...note, bar: note.bar + 2 })));
+  assert.equal(result.message, "Duplicated the whole groove.");
+  assert.deepEqual(undoLastChange(recordUndoUnit(before, result, "duplicate").state).state.pattern, before.pattern);
+});
 
 test("duplicate inserts the exact selection and shifts all later lanes", async () => {
   const result = await runPatternCommand({ initialState: before, request: "copy this", selection, decideNode });

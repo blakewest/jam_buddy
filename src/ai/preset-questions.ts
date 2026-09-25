@@ -42,7 +42,7 @@ export function buildPresetSelectionQuestions(candidates: import("../core/patter
   return {
     preset: {
       type: "choice",
-      instructions: { question: "Which candidate beat preset best fulfills the request?", inspect: ["request", "candidates"] },
+      instructions: { question: "Which candidate beat preset best fulfills the request?", inspect: ["request", "candidates"], focus: "A simple kick-and-snare starter or a backbeat without hats selects Simple Kick & Snare. A generic simple/basic backbeat selects Simple Backbeat, which includes eighth-note hats." },
       criteria: Object.fromEntries(candidates.map(item => [item.id, { name: item.name, genres: item.genres, meter: `${item.meter.numerator}/${item.meter.denominator}`, feel: item.feel, tags: item.tags, bars: item.bars, source_bpm: item.source.bpm ?? null, description: item.description }])),
     },
   };

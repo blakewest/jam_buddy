@@ -6,6 +6,7 @@ const MAX_CAPTURE_GAP_SECONDS = 0.25;
 export type TransportSnapshot = {
   playing: boolean;
   meter?: Meter;
+  swing_percent?: number;
   tempo_bpm: number;
   bars: number;
   origin_context_seconds: number;

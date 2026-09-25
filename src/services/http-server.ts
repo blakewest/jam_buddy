@@ -62,7 +62,8 @@ const PUBLIC_FILES = new Map<string, [URL, string]>([
   ["/recorded-run.json", staticFile("../../recordings/live-60s.json", "application/json")],
 ]);
 for (const name of ["capture", "analysis", "rhythm", "decision"]) PUBLIC_FILES.set(`/core/recording/${name}.js`, staticFile(`../core/recording/${name}.js`, "text/javascript"));
-for (const name of ["capture", "capture-worklet"]) PUBLIC_FILES.set(`/frontend/pattern/${name}.js`, staticFile(`../frontend/pattern/${name}.js`, "text/javascript"));
+for (const name of ["capture", "capture-worklet", "demo"]) PUBLIC_FILES.set(`/frontend/pattern/${name}.js`, staticFile(`../frontend/pattern/${name}.js`, "text/javascript"));
+PUBLIC_FILES.set("/core/demo/recording.js", staticFile("../core/demo/recording.js", "text/javascript"));
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const KIT_SAMPLE_PATHS = new Set([
   ...Object.values(kitManifest.families).flat().map(file => `/assets/virtuosity/${file}`),
@@ -137,7 +138,7 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
 export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl = fetch, openRouterKey = process.env.OPENROUTER_API_KEY } = {}) {
   return httpServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-ancestors 'none'");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; frame-ancestors 'none'");
     const host = req.headers.host;
     if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host ?? "")) return json(res, 403, { error: "Local access only." });
     const path = new URL(req.url ?? "/", `http://${host}`).pathname;

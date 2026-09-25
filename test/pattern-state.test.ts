@@ -154,11 +154,13 @@ test("micro timing uses stored BPM and wraps across the phrase edge", () => {
   assert.equal(applyPatternAnswers(state, noReset(modify("snare_1", 0.9, "later_sixteenth")), "a little later").state.pattern.notes[0].tick, 240);
 });
 
-test("ordinary earlier language cannot trigger a micro nudge from a Jev choice", () => {
+test("a typed micro nudge stays small for ordinary nudge wording", () => {
   const state = createPatternState({ tempo_bpm: 120, notes: [note("snare_1", "snare", 5)] });
   const answer = noReset(modify("snare_1", 0.9, "earlier_10ms"));
-  const result = applyPatternAnswers(state, answer, "move that snare a little earlier");
-  assert.equal(result.state.pattern.notes[0].tick, 720);
+  const result = applyPatternAnswers(state, answer, "nudge that snare earlier");
+  assert.equal(result.state.pattern.notes[0].tick, 941);
+  const later = applyPatternAnswers(state, noReset(modify("snare_1", 0.9, "later_10ms")), "nudge it a little later");
+  assert.equal(later.state.pattern.notes[0].tick, 979);
 });
 
 test("micro timing stays near 10 ms in the audible swung timeline", () => {

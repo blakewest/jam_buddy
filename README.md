@@ -39,11 +39,23 @@ The root `server.ts` only starts the HTTP service.
 
 Use wired headphones and keep the tab visible. Hiding the tab ends the run so browser suspension does not contaminate timing results.
 
+## Recording a replayable demo
+
+In the pattern builder, use **Record demo**, build your beat normally with **Hold to speak** or typed commands, then **Finish recording**. Start with **New session** first if you want an empty opening. Leave a few seconds at the end to hear the finished groove.
+
+**Play demo** replays the saved voice and drum audio, captions, selected areas, activity, pattern changes, and Jev animation. It makes no transcription or TypeSafe calls and restores your working beat when finished or stopped. Editing is locked during replay. Keep the tab visible; hiding it stops replay.
+
+The recorder captures the actual drum output throughout the demo and the microphone only while Hold to speak is active. A silent source keeps the recording stream continuous between sounds. It also retains each original microphone WAV, full transcript, analysis metadata, API requests/responses, and timed pattern states. The microphone is never monitored through speakers. Rejected requests remain in the recording; record another run if you want a clean take.
+
+The current take autosaves locally every five seconds, separately from the last finished demo. **Download** saves one self-contained `jev-demo-YYYY-MM-DD.json`; **Load demo** imports it later. Download your good take before making another. The embedded audio uses the browser's supported WebM/Opus, MP4, or Ogg format; use the same browser if another browser cannot decode it. Engineering limits are ten minutes and 128 MB per file. No screen video is captured; this is an audio performance plus a replayable app timeline.
+
 ## Pattern builder
 
-Drag across drum lanes and whole beats to highlight an area. Arrow keys move the selection, Shift+arrows extend it, and Escape clears it while the grid is focused. Requests such as `make this softer` or `give me triplet snares right here` use that area; explicit time targets can override it. Selection stays in place while typing or recording.
+`Nudge it earlier` or `nudge it later` moves the target about 10 ms (an engineering default). An explicit interval such as `a sixteenth earlier` uses that interval instead.
 
-`Copy this bar` or `duplicate this beat` inserts one copy immediately after the selection and shifts later hits forward across all lanes. Without a selection it doubles the whole groove. Copies preserve timing, velocity, and articulation, support Undo, and cannot exceed eight bars. Partial-bar insertions pad the final bar with silence.
+Drag across drum lanes and whole beats to highlight an area. Arrow keys move the selection, Shift+arrows extend it, and Escape clears it while the grid is focused. Requests such as `make this softer` or `give me triplet snares right here` use that area; explicit time targets can override it. Selection stays in place while typing or recording, then clears after a successful change. Failed requests and requests that make no changes retain it.
+
+`Copy this bar` or `duplicate this beat` inserts one copy immediately after the selection and shifts later hits forward across all lanes. Without a selection it doubles the whole groove. Explicit whole-pattern requests such as `duplicate this whole thing` also copy the entire groove, overriding any highlight. Copies preserve timing, velocity, and articulation, support Undo, and cannot exceed eight bars. Partial-bar insertions pad the final bar with silence.
 
 Triplet fills add a three-hit group. Unqualified triplets default to quarter-note triplets (two quarter-note beats), or eighth-note triplets when the selection is too short for quarters. Explicit `quarter-note triplets` and `eighth-note triplets` keep the requested spacing; groups must fit inside the selected area and bar. Placement is inferred from the request and groove when omitted.
 
@@ -61,7 +73,7 @@ The current request is authoritative. The structured velocity interpreter sees n
 
 Patterns use 960 ticks per quarter note, preserve human timing and MIDI velocity (1–127), and support straight eighths, straight sixteenths, eighth-note triplets, and sixteenth-note triplets for editing. Acoustic playback uses Glen MacArthur’s AVL Black Pearl kit with five recorded velocity layers, loaded only as needed. The converted samples retain their CC-BY-SA-3.0 license and attribution in `src/frontend/assets/black-pearl/`. Rebuild them with `tools/prepare-black-pearl-kit.py` (Python, numpy, soundfile). Electronic kits retain their existing CC0 Virtuosity fallback articulations. Some source pitches use nearby articulations, documented in the kit manifest. Closing/pedal hats choke open hats. Rhythm requests also support three-hit quarter-note triplet groups (the default for “triplets”) and eighth-note triplet groups. Jev chooses a fitting starting beat from the groove context unless a start is specified; existing hits are preserved and each group is one undoable edit. Pattern state and raw request/response history remain in browser IndexedDB and survive reloads.
 
-The active catalog is exactly the ten approved source grooves plus the locally authored Simple Backbeat, all in 4/4. Jev chooses among matching presets using genre, feel, meter, tags, source tempo, and descriptions. Legacy demo presets are not selectable. Imported phrases retain up to eight source bars; audition clips play original audio, while the beat maker renders the matching MIDI with its own kit, so their timbres differ.
+The active catalog is exactly the ten approved source grooves plus the locally authored Simple Backbeat and Simple Kick & Snare, all in 4/4. Both starters have kick on beats 1 and 3 and snare on 2 and 4; only Simple Backbeat includes eighth-note hats. Ask for "a simple kick and snare" to start without hats and add them later. Jev chooses among matching presets using genre, feel, meter, tags, source tempo, and descriptions. Legacy demo presets are not selectable. Imported phrases retain up to eight source bars; audition clips play original audio, while the beat maker renders the matching MIDI with its own kit, so their timbres differ.
 
 The approved shortlist is recorded in `CURATED_GROOVE_IDS` in `src/core/pattern/audition-grooves.ts`. Later Keep/Reject changes on the audition page are local browser preferences, not automatic changes to the active catalog. The bundled previews total about 140 MB but load only when played; the articulation kit totals about 23 MB. Asset sources and licenses are in `src/frontend/assets/ATTRIBUTION.md`.
 
@@ -139,7 +151,8 @@ Jev continues to use TypeSafe. Keys stay on the local server.
 
 Use headphones. With Bluetooth earbuds, select the computer's built-in microphone
 as input to avoid switching the earbuds into lower-quality microphone mode.
-Hold **Hold to record** with a pointer, or focus it and
+Choose an input from the microphone dropdown below **Hold to speak**; the browser remembers it.
+Hold **Hold to speak** with a pointer, or focus it and
 hold Space/Enter. Wait for **Recording…**, optionally speak an instruction,
 beatbox, then release. Escape, lost focus, or a disconnected microphone cancels.
 Permission is requested on first use; releasing before permission/setup finishes
@@ -147,31 +160,34 @@ cancels the take. Takes stop at 30 seconds.
 
 Playback continues during recording and processing. Pattern and transport changes
 are locked until processing ends. Successful changes apply automatically, at the
-next available beat for note/velocity edits, or the next phrase for whole-pattern
-replacements and timing changes. Already scheduled audio is preserved, so a beat
+next available beat for note edits, whole-pattern replacements and timing changes. Already scheduled audio is preserved, so a beat
 inside the scheduling lookahead may be skipped. Undo restores the whole change.
 Say “those should be hi-hats” to correct the last take's instrument labels.
 
-Input timing correction moves captured hits earlier when positive; adjust it for
-your interface. Output latency is accounted for separately from scheduling
-lookahead. During playback, tempo and phrase length stay fixed. Stopped replacement
+Output latency is accounted for separately from scheduling lookahead. Input
+latency calibration is not exposed in the current demo. During playback, tempo and phrase length stay fixed. Stopped replacement
 takes infer tempo between 60–180 BPM and anchor their first hit to beat one.
 Fewer than three hits retain the current tempo. Addition retains the existing
 tempo and phrase. Replacement rejects takes longer than four bars.
 
-Use the take controls to adjust the demonstration start, tempo (including
-half/double), or bar-start rotation, then **Apply adjustment**. Start adjustment is
-also offered when speech and beatboxing cannot be separated confidently. A failed
-take stays in memory for **Retry take**. Speech retries use the current beat;
-applying an old rhythm or adjusting it rejects a changed base to protect newer
-edits. Raw audio is never saved automatically. **Export diagnostic
-WAV + JSON** downloads the latest take and its timing/analysis details. Reloading
-or starting a new session discards it.
+Demonstrated hits snap to the nearest audible sixteenth-note position, including
+added swing during playback. Stopped replacements start with straight playback
+so the prior groove's swing does not warp a new take. Adding a take preserves
+existing same-drum hits within 60 ticks (including the loop seam), matching the
+rhythm-fill tolerance, instead of adding near-duplicates. These are engineering
+choices, not perceptual thresholds. Raw audio is held only while processing and
+is not saved automatically; retry by recording another take.
 
-The detector uses local volume, spectral balance and attack-shape heuristics,
+The detector enforces 30 ms minimum spacing on refined onsets and ends each
+classification window before the next attack. It uses local volume, spectral
+balance and attack-shape heuristics,
 not a trained classifier. Settings in `src/core/recording/analysis.ts` are demo
 engineering choices. Speaker echo rejection, Bluetooth latency calibration,
 continuous listening and generated speech are not supported. Whisper may
 transcribe beatbox syllables; timestamps are evidence, not a reason to discard
 all transcribed audio. Real-voice accuracy and release-to-result latency have
 not yet been measured; synthetic tests do not establish those results.
+
+### Live rhythm interpretation check
+
+With the QA server running, run `QA_URL=http://127.0.0.1:3210 node dist/scripts/check-rhythm-fill.js` after building. This makes live TypeSafe calls to check hats, subdivisions, and references to recent edits.

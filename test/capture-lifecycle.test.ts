@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import { createRecorder } from "../src/frontend/pattern/capture.js";
 import type { RecordedTake } from "../src/core/recording/capture.js";
 
-function harness(t: test.TestContext) {
+function harness(t: test.TestContext, deviceId = "", recordingDestination?: AudioNode) {
+  const sourceConnections: unknown[] = [];
+  let sourceDisconnects = 0;
+  let constraints: MediaStreamConstraints | undefined;
   let resolveMedia!: (stream: MediaStream) => void;
   let rejectMedia!: (error: Error) => void;
   const media = new Promise<MediaStream>((resolve, reject) => { resolveMedia = resolve; rejectMedia = reject; });
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
-  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { mediaDevices: { getUserMedia: () => media } } });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { mediaDevices: { getUserMedia: (value: MediaStreamConstraints) => { constraints = value; return media; } } } });
   const originalNode = globalThis.AudioWorkletNode;
   const statuses: string[] = [], errors: string[] = [], takes: RecordedTake[] = [];
   let stops = 0;
@@ -22,10 +25,10 @@ function harness(t: test.TestContext) {
   }
   let node: Node;
   globalThis.AudioWorkletNode = Node as unknown as typeof AudioWorkletNode;
-  const context = Object.assign(new EventTarget(), { sampleRate: 8000, state: "running", destination: {}, audioWorklet: { addModule: async () => {} }, createMediaStreamSource: () => ({ connect() {}, disconnect() {} }), createGain: () => ({ gain: { value: 1 }, connect() {}, disconnect() {} }) });
-  const recorder = createRecorder({ context: async () => context as unknown as AudioContext, snapshot: () => ({ playing: false, tempo_bpm: 120, bars: 1, origin_context_seconds: 0, captured_context_seconds: 10, output_latency_seconds: 0, output_context_seconds: 10, output_performance_ms: 0, input_correction_ms: 0 }), onStatus: status => statuses.push(status), onTake: take => takes.push(take), onError: message => errors.push(message) });
+  const context = Object.assign(new EventTarget(), { sampleRate: 8000, state: "running", destination: {}, audioWorklet: { addModule: async () => {} }, createMediaStreamSource: () => ({ connect(node: unknown) { sourceConnections.push(node); }, disconnect() { sourceDisconnects++; } }), createGain: () => ({ gain: { value: 1 }, connect() {}, disconnect() {} }) });
+  const recorder = createRecorder({ recordingDestination: () => recordingDestination, deviceId: () => deviceId, context: async () => context as unknown as AudioContext, snapshot: () => ({ playing: false, tempo_bpm: 120, bars: 1, origin_context_seconds: 0, captured_context_seconds: 10, output_latency_seconds: 0, output_context_seconds: 10, output_performance_ms: 0, input_correction_ms: 0 }), onStatus: status => statuses.push(status), onTake: take => takes.push(take), onError: message => errors.push(message) });
   t.after(() => { recorder.cancel(); globalThis.AudioWorkletNode = originalNode; if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor); else Reflect.deleteProperty(globalThis, "navigator"); });
-  return { oldError: () => node.onprocessorerror, recorder, statuses, errors, takes, context, allow: () => resolveMedia(stream), deny: () => rejectMedia(new Error("Permission denied")), stops: () => stops, emit: (data: unknown) => node.port.onmessage?.({ data }), disconnect: () => track.dispatchEvent(new Event("ended")) };
+  return { sourceConnections, sourceDisconnects: () => sourceDisconnects, constraints: () => constraints, oldError: () => node.onprocessorerror, recorder, statuses, errors, takes, context, allow: () => resolveMedia(stream), deny: () => rejectMedia(new Error("Permission denied")), stops: () => stops, emit: (data: unknown) => node.port.onmessage?.({ data }), disconnect: () => track.dispatchEvent(new Event("ended")) };
 }
 test("release while permission is pending stops late tracks without recording", async t => {
   const h = harness(t);
@@ -61,4 +64,28 @@ test("a stale worklet error cannot cancel a later capture", async t => {
   await h.recorder.start(); oldError?.();
   h.emit({ time: 12, samples: new Float32Array(128) }); h.emit({ done: true });
   assert.equal(h.takes.length, 1); assert.equal(h.errors.length, 0);
+});
+
+test("recording requests the chosen microphone exactly", async t => {
+  const h = harness(t, "built-in-mic");
+  const start = h.recorder.start(); h.allow(); await start;
+  assert.deepEqual((h.constraints()?.audio as MediaTrackConstraints).deviceId, { exact: "built-in-mic" });
+});
+
+test("system default does not constrain the microphone device", async t => {
+  const h = harness(t);
+  const start = h.recorder.start(); h.allow(); await start;
+  assert.equal((h.constraints()?.audio as MediaTrackConstraints).deviceId, undefined);
+});
+
+
+test("voice capture feeds the private demo mix without monitoring the microphone through speakers", async t => {
+  const mix = {} as AudioNode;
+  const h = harness(t, "", mix);
+  const start = h.recorder.start(); h.allow(); await start;
+  assert.ok(h.sourceConnections.includes(mix));
+  assert.ok(!h.sourceConnections.includes(h.context.destination));
+  h.emit({ time: 10, samples: new Float32Array(128) }); h.emit({ done: true });
+  assert.equal(h.sourceDisconnects(), 1);
+  assert.equal(h.takes[0].samples.length, 128);
 });

@@ -1,3 +1,8 @@
+import { createDemoStudio } from "./demo.js";
+import { bytesToBase64 } from "../../core/demo/recording.js";
+import type { DemoView, DemoTake } from "../../core/demo/recording.js";
+import { validSelection } from "../../core/pattern/selection.js";
+import type { BeatSelection } from "../../core/pattern/selection.js";
 import { createGridSelection } from "./selection.js";
 import { createRecorder } from "./capture.js";
 import { analyzeTake } from "../../core/recording/analysis.js";
@@ -27,10 +32,20 @@ interface SavedSession { state: PatternState; logs: RequestLog[]; tempo_bpm?: nu
 type Decide = <T>(url: string, payload: unknown) => Promise<T>;
 
 interface Elements {
+  "demo-record": HTMLButtonElement;
+  "demo-play": HTMLButtonElement;
+  "demo-download": HTMLButtonElement;
+  "demo-load": HTMLButtonElement;
+  "demo-file": HTMLInputElement;
+  "demo-status": HTMLElement;
+  "demo-time": HTMLElement;
+  "demo-caption": HTMLElement;
   "selection-summary": HTMLElement;
   "clear-selection": HTMLButtonElement;
   "tempo": HTMLInputElement;
   "record": HTMLButtonElement;
+  "microphone": HTMLSelectElement;
+  "microphone-enable": HTMLButtonElement;
   "record-cancel": HTMLButtonElement;
   "play": HTMLButtonElement;
   "stop": HTMLButtonElement;
@@ -66,19 +81,66 @@ function $<K extends keyof Elements>(id: K): Elements[K] {
   return element as Elements[K];
 }
 const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
+let demo: ReturnType<typeof createDemoStudio> | undefined;
+let replayView: DemoView | null = null;
+let replayRestore: { request: string; selection: BeatSelection | null; volume: string } | null = null;
 let state = createPatternState();
 let pendingState: PatternState | null = null;
 let pendingBoundary: "beat" | "phrase" = "beat";
 let logs: RequestLog[] = [];
 let busy = false;
+let microphoneSetup = false;
+let microphoneId = "";
+let microphoneLabel = "Selected microphone";
+try {
+  const saved = JSON.parse(localStorage.getItem("jam-microphone") ?? "null");
+  if (typeof saved?.id === "string") microphoneId = saved.id;
+  if (typeof saved?.label === "string") microphoneLabel = saved.label;
+} catch { /* Device preference is optional when browser storage is unavailable. */ }
+let microphoneRefresh = 0;
+async function refreshMicrophones() {
+  const version = ++microphoneRefresh;
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  try {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === "audioinput" && device.deviceId);
+    if (version !== microphoneRefresh) return;
+    const select = $("microphone");
+    select.replaceChildren(new Option("System default", ""));
+    for (const [index, device] of devices.entries()) {
+      if (device.deviceId !== "default") select.add(new Option(device.label || `Microphone ${index + 1}`, device.deviceId));
+    }
+    if (microphoneId && !devices.some(device => device.deviceId === microphoneId)) select.add(new Option(`${microphoneLabel} (unavailable)`, microphoneId));
+    select.value = microphoneId;
+    select.title = select.selectedOptions[0]?.textContent ?? "Microphone input";
+    $("microphone-enable").hidden = devices.some(device => !!device.label);
+  } catch { $("request-status").textContent = "Could not list microphones. Check browser microphone permissions."; }
+}
+$("microphone").addEventListener("change", () => {
+  microphoneId = $("microphone").value;
+  microphoneLabel = $("microphone").selectedOptions[0]?.textContent ?? "Selected microphone";
+  $("microphone").title = microphoneLabel;
+  try { localStorage.setItem("jam-microphone", JSON.stringify({ id: microphoneId, label: microphoneLabel })); } catch { /* Recording still works without saved preferences. */ }
+});
+$("microphone-enable").addEventListener("click", async () => {
+  microphoneSetup = true;
+  updateControls();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(track => track.stop());
+    await refreshMicrophones();
+    $("request-status").textContent = "Choose your microphone, then hold to speak.";
+  } catch { $("request-status").textContent = "Allow microphone access in your browser to choose an input."; }
+  finally { microphoneSetup = false; updateControls(); }
+});
+navigator.mediaDevices?.addEventListener("devicechange", () => { void refreshMicrophones(); });
 let captureStatus: "idle" | "initializing" | "recording" = "idle";
 let recordProcessing = false;
-let takeMemory: { take: RecordedTake; before: PatternState; evidence?: RecordingEvidence; decision?: RecordingDecision; transcript?: Transcript } | null = null;
+let takeMemory: { take: RecordedTake; before: PatternState; evidence?: RecordingEvidence; decision?: RecordingDecision; transcript?: Transcript; demoTake?: DemoTake } | null = null;
 const hitTimers = new Map<string, number>();
 let startingPlayback = false;
 let operationVersion = 0;
 let requestAbort: AbortController | null = null;
-const gridSelection = createGridSelection($("pattern-grid"), $("selection-summary"), $("clear-selection"), () => displayedState().pattern, () => busy || !!pendingState || startingPlayback || captureStatus !== "idle" || recordProcessing);
+const gridSelection = createGridSelection($("pattern-grid"), $("selection-summary"), $("clear-selection"), () => displayedState().pattern, () => busy || !!pendingState || startingPlayback || captureStatus !== "idle" || recordProcessing || !!demo?.isReplaying() || !!demo?.isBusy(), () => demo?.recordView());
 for (const kit of KITS) {
   const option = document.createElement("option");
   option.value = kit.id;
@@ -122,12 +184,11 @@ async function storage(value?: SavedSession): Promise<SavedSession | undefined> 
 }
 
 async function persist() {
+  if (demo?.isReplaying()) return;
   try { await storage({ state: pendingState ?? state, logs: logs.slice(-50) }); } catch { $("request-status").textContent = "Browser storage is unavailable; this session will not survive a reload."; }
 }
 
-const player = createPatternPlayer({
-  onError: message => { $("playback-status").textContent = message; },
-  onHit: instrument => {
+function animateHit(instrument: string) {
     const jev = $("jev");
     const part = instrument === "kick" ? "kick" : instrument.includes("hat") ? "hat" : instrument === "crash" || instrument === "ride" ? "crash" : instrument === "snare" ? "snare" : "tom";
     const side = part === "kick" ? null : part === "hat" || part === "snare" ? "left" : "right";
@@ -138,6 +199,13 @@ const player = createPatternPlayer({
       jev.classList.add(name);
       hitTimers.set(name, window.setTimeout(() => { jev.classList.remove(name); hitTimers.delete(name); }, 320));
     }
+}
+
+const player = createPatternPlayer({
+  onError: message => { $("playback-status").textContent = message; },
+  onHit: instrument => {
+    animateHit(instrument);
+    demo?.recordHit(instrument as import("../../core/pattern/state.js").Instrument);
   },
   onSwap: () => {
     if (!pendingState) return;
@@ -151,7 +219,7 @@ const player = createPatternPlayer({
 });
 
 function displayedState() {
-  return pendingState ?? state;
+  return replayView ? replayView.pending_state ?? replayView.state : pendingState ?? state;
 }
 
 function renderGrid() {
@@ -193,7 +261,7 @@ function renderGrid() {
 }
 
 function activitySteps(log: RequestLog): string[] {
-  const names: Record<string, string> = { edit_pattern: "Edit pattern", fill_rhythm: "Fill rhythm", change_kit: "Change kit", another_kit: "Shuffle kit", keep_current: "Keep current kit", load_preset: "Load beat", shuffle_preset: "Shuffle beat", clear_pattern: "Clear beat", clear_selection: "Clear selection", duplicate: "Duplicate", undo: "Undo", unsupported: "Unsupported request", recorded_rhythm: "Recorded rhythm", change_tempo: "Change tempo", change_swing: "Change swing", edit_plan: "Plan edits", preset_search: "Find a beat", preset_select: "Choose a beat", rhythm_fill: "Build rhythm", rhythm_interpret: "Choose rhythm", edit_interpret: "Interpret edit", velocity_apply: "Adjust velocity", preset_shuffle: "Pick another beat", preset_load: "Load beat", pattern_clear: "Clear beat", edit_intent: "Interpret edit", velocity_edit: "Adjust velocity" };
+  const names: Record<string, string> = { edit_pattern: "Edit pattern", fill_rhythm: "Fill rhythm", change_kit: "Change kit", another_kit: "Shuffle kit", keep_current: "Keep current kit", load_preset: "Load beat", shuffle_preset: "Shuffle beat", clear_pattern: "Clear beat", clear_selection: "Clear selection", duplicate: "Duplicate", whole_pattern: "Whole groove", selected: "Highlighted selection", undo: "Undo", unsupported: "Unsupported request", recorded_rhythm: "Recorded rhythm", change_tempo: "Change tempo", change_swing: "Change swing", edit_plan: "Plan edits", preset_search: "Find a beat", preset_select: "Choose a beat", rhythm_fill: "Build rhythm", rhythm_interpret: "Choose rhythm", edit_interpret: "Interpret edit", velocity_apply: "Adjust velocity", preset_shuffle: "Pick another beat", preset_load: "Load beat", pattern_clear: "Clear beat", edit_intent: "Interpret edit", velocity_edit: "Adjust velocity" };
   const readable = (value: string) => names[value] ?? value.replaceAll("_", " ").replace(/^./, c => c.toUpperCase());
   const steps = (log.routing ?? []).flatMap(route => "next_node" in route.outcome ? [readable(route.outcome.next_node)] : [readable(route.outcome.selection)]);
   for (const visit of log.visits ?? []) {
@@ -244,19 +312,20 @@ function activityActions(log: RequestLog): string[] {
 function renderHistory() {
   const list = $("history-list");
   list.replaceChildren();
-  if (!logs.length) {
+  const activity = replayView?.activity ?? activitySnapshot();
+  if (!activity.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
     empty.textContent = "Every groove starts somewhere. Your first move will appear here.";
     list.append(empty);
     return;
   }
-  for (const log of [...logs].reverse()) {
+  for (const row of [...activity].reverse()) {
     const item = document.createElement("article");
     item.className = "activity-card";
     const body = document.createElement("div");
     body.className = "activity-columns";
-    for (const [label, values] of [["Input", [log.request]], ["Jev decisions", activitySteps(log)], ["Actions", activityActions(log)]] as const) {
+    for (const [label, values] of [["Input", [row.request]], ["Jev decisions", row.steps], ["Actions", row.actions]] as const) {
       const section = document.createElement("section");
       const heading = document.createElement("h3");
       heading.textContent = label;
@@ -277,7 +346,7 @@ function renderHistory() {
     const toggle = document.createElement("summary");
     toggle.textContent = "Technical details";
     const raw = document.createElement("pre");
-    raw.textContent = JSON.stringify(log, null, 2);
+    raw.textContent = JSON.stringify(row.details, null, 2);
     details.append(toggle, raw);
     item.append(body, details);
     list.append(item);
@@ -305,13 +374,50 @@ function describeChange(change: CommandResult["result"]["applied_changes"][numbe
   return change.source ?? "Updated the groove";
 }
 
+function activitySnapshot() {
+  return logs.map(log => ({ request: log.request, steps: activitySteps(log), actions: activityActions(log), details: log }));
+}
+
+function demoSnapshot(): DemoView {
+  const selection = gridSelection.snapshot();
+  return { state, pending_state: pendingState, selection: selection && validSelection(selection, displayedState().pattern) ? selection : null, activity: activitySnapshot(),
+    request: $("request").value, request_status: $("request-status").textContent ?? "", playback_status: $("playback-status").textContent ?? "",
+    playing: player.isPlaying(), volume: Number($("volume").value), capturing: captureStatus === "recording" };
+}
+
+function updateDemoControls() {
+  if (!demo) return;
+  const liveBusy = busy || !!pendingState || startingPlayback || captureStatus !== "idle" || recordProcessing || microphoneSetup;
+  const recording = demo.isRecording();
+  const replaying = demo.isReplaying();
+  $("demo-record").textContent = recording ? "■ Finish recording" : "● Record demo";
+  $("demo-record").classList.toggle("is-recording", recording);
+  $("demo-record").disabled = liveBusy || replaying || demo.isBusy();
+  $("demo-play").textContent = replaying ? "■ Stop demo" : "▶ Play demo";
+  $("demo-play").classList.toggle("is-playing", replaying);
+  $("demo-play").disabled = !replaying && (liveBusy || recording || demo.isBusy() || !demo.hasSaved());
+  $("demo-download").disabled = recording || replaying || demo.isBusy() || !demo.hasSaved();
+  $("demo-load").disabled = liveBusy || recording || replaying || demo.isBusy();
+  $("demo-status").textContent = demo.message();
+  const seconds = Math.floor((recording || replaying ? demo.elapsed() : demo.duration()) / 1000);
+  $("demo-time").textContent = recording || replaying || demo.hasSaved() ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "";
+  $("demo-caption").textContent = demo.caption();
+  $("demo-caption").hidden = !demo.caption();
+}
+
 function updateControls() {
-  const pending = pendingState !== null;
+  const demoLocked = !!demo?.isReplaying() || !!demo?.isBusy();
+  const currentState = replayView?.state ?? state;
+  const currentPending = replayView ? replayView.pending_state : pendingState;
+  const playing = replayView?.playing ?? player.isPlaying();
+  const pending = currentPending !== null;
   const recording = captureStatus !== "idle";
-  const locked = busy || pending || startingPlayback || recording;
+  const locked = busy || pending || startingPlayback || recording || microphoneSetup || demoLocked;
+  $("microphone").disabled = locked;
+  $("microphone-enable").disabled = locked;
   $("new-session").disabled = locked;
   $("clear-selection").disabled = locked;
-  $("record").disabled = busy || pending || startingPlayback;
+  $("record").disabled = busy || pending || startingPlayback || microphoneSetup || demoLocked;
   $("record").textContent = captureStatus === "recording" ? "Recording… release to finish" : captureStatus === "initializing" ? "Preparing microphone…" : "Hold to speak";
   $("record").setAttribute("aria-pressed", String(captureStatus === "recording"));
   $("record-cancel").hidden = !recording && !recordProcessing;
@@ -320,21 +426,24 @@ function updateControls() {
   $("kit").disabled = locked;
   document.querySelectorAll<HTMLButtonElement>(".examples button").forEach(button => { button.disabled = locked; });
   $("kit").value = displayedState().pattern.kit_id;
-  const currentSwing = state.pattern.swing_percent ?? 50;
+  const currentSwing = currentState.pattern.swing_percent ?? 50;
   const nextSwing = displayedState().pattern.swing_percent ?? 50;
   $("swing-status").textContent = currentSwing !== nextSwing ? `Swing ${currentSwing}% → ${nextSwing}% next beat` : nextSwing === 50 ? "Swing off" : `Swing ${nextSwing}%`;
   $("swing-status").classList.toggle("is-active", currentSwing !== nextSwing || nextSwing !== 50);
-  const currentKit = getKit(state.pattern.kit_id).name;
-  $("kit-status").textContent = pendingState && pendingState.pattern.kit_id !== state.pattern.kit_id ? `${currentKit} → ${getKit(pendingState.pattern.kit_id).name} next beat` : currentKit;
-  $("kit-status").classList.toggle("is-active", !!pendingState && pendingState.pattern.kit_id !== state.pattern.kit_id);
+  const currentKit = getKit(currentState.pattern.kit_id).name;
+  $("kit-status").textContent = currentPending && currentPending.pattern.kit_id !== currentState.pattern.kit_id ? `${currentKit} → ${getKit(currentPending.pattern.kit_id).name} next beat` : currentKit;
+  $("kit-status").classList.toggle("is-active", !!currentPending && currentPending.pattern.kit_id !== currentState.pattern.kit_id);
   $("send").disabled = locked;
   $("request").disabled = locked;
   $("clear").disabled = locked || displayedState().pattern.notes.length === 0;
   $("pending").hidden = !pending;
   $("pending").textContent = `Applies next ${pendingBoundary}`;
-  $("play").disabled = player.isPlaying() || locked;
-  $("stop").disabled = recording || recordProcessing || (!player.isPlaying() && !busy && !startingPlayback);
-  $("jev-caption").textContent = player.isPlaying() ? "JEV IS PLAYING" : "JEV IS READY";
+  $("play").disabled = playing || locked;
+  $("stop").disabled = demoLocked || recording || recordProcessing || (!player.isPlaying() && !busy && !startingPlayback);
+  $("volume").disabled = demoLocked;
+  $("jev-caption").textContent = playing ? "JEV IS PLAYING" : "JEV IS READY";
+  updateDemoControls();
+  demo?.recordView();
 }
 
 function render() {
@@ -371,13 +480,14 @@ async function commitOrStage(nextState: PatternState, autoPlay = true, boundary:
     state = nextState;
     $("request-status").textContent = "Changes applied.";
   }
+  gridSelection.clear();
   render();
   persist();
   if (autoPlay && !player.isPlaying()) void startPlayback(state.pattern);
 }
 
 async function performRequest(request: string, run: (decide: Decide) => Promise<CommandResult>, local = false) {
-  if (busy || pendingState || startingPlayback || captureStatus !== "idle") return;
+  if (busy || pendingState || startingPlayback || captureStatus !== "idle" || demo?.isReplaying() || demo?.isBusy()) return;
   busy = true;
   const version = ++operationVersion;
   requestAbort = new AbortController();
@@ -390,6 +500,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
     const started = performance.now();
     const response = await fetch(url, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(payload as object), ...(selection ? { selection } : {}) }) });
     const data = await response.json();
+    demo?.recordCall({ at_ms: demo.elapsed(), path: url, status: response.status, request: { ...(payload as object), ...(selection ? { selection } : {}) }, response: data });
     signal.throwIfAborted();
     if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
     return { ...data, latency_ms: performance.now() - started };
@@ -402,17 +513,15 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
       await player.load(completed.state.pattern);
       if (version !== operationVersion) return;
     }
-    completed = recordUndoUnit(state, completed, request);
-    const log = { request, local, beat_ticks: state.pattern.ticks_per_quarter * 4 / state.pattern.meter.denominator, message: completed.message, routing: completed.routing, visits: completed.visits, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms ?? 0, model: completed.model, usage: completed.usage, question_count: completed.question_count };
+    const savedRequest = recordProcessing && takeMemory?.transcript ? takeMemory.transcript.text.trim().slice(0, 500) || request : request;
+    completed = recordUndoUnit(state, completed, savedRequest);
+    const log = { request: savedRequest, local, beat_ticks: state.pattern.ticks_per_quarter * 4 / state.pattern.meter.denominator, message: completed.message, routing: completed.routing, visits: completed.visits, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms ?? 0, model: completed.model, usage: completed.usage, question_count: completed.question_count };
     logs = [...logs, log].slice(-50);
 
     const tokens = Number(completed.usage?.input_tokens ?? 0) + Number(completed.usage?.output_tokens ?? 0);
     $("request-meta").textContent = local ? "Local change · No API call" : `${Math.round(completed.latency_ms)} ms · ${completed.question_count} questions · ${completed.passes.length} edit passes · ${completed.model}${tokens ? ` · ${tokens} tokens` : ""}`;
     if (!local) $("request").value = "";
     if (completed.result.applied_changes.length) {
-      if (completed.result.applied_changes.some(change => ["reset", "preset", "load_preset"].includes(change.kind))) {
-        gridSelection.clear();
-      }
       await commitOrStage(completed.state, completed.result.applied_changes.some(change => !["kit", "undo", "swing", "tempo"].includes(change.kind)));
     }
     else {
@@ -495,16 +604,26 @@ $("request-form").addEventListener("submit", event => {
 });
 
 const recorder = createRecorder({
+  deviceId: () => microphoneId,
+  recordingDestination: () => demo?.microphoneDestination(),
   context: () => player.captureContext(),
   snapshot: () => player.snapshot(state.pattern, 0, state.tempo_bpm),
   onStatus: status => {
     captureStatus = status;
+    if (status === "recording") void refreshMicrophones();
     if (status !== "idle") $("request-status").textContent = status === "initializing" ? "Preparing microphone — keep holding." : "Recording now. Release when you’re done.";
     updateControls();
   },
   onError: message => { $("request-status").textContent = message; },
   onTake: take => {
     takeMemory = { take, before: createPatternState(state) };
+    if (demo?.isRecording()) {
+      const durationMs = take.samples.length / take.sample_rate * 1000;
+      takeMemory.demoTake = { id: take.id, at_ms: Math.max(0, demo.elapsed() - (performance.now() - take.release_performance_ms) - durationMs), duration_ms: durationMs,
+        audio: { mime_type: "audio/wav", base64: bytesToBase64(new Uint8Array(encodeWav(take.samples, take.sample_rate))) },
+        metadata: { sample_rate: take.sample_rate, start_context_seconds: take.start_context_seconds, release_performance_ms: take.release_performance_ms, transport: take.transport } };
+      demo.recordTake(takeMemory.demoTake);
+    }
     void processTake();
   },
 });
@@ -552,12 +671,16 @@ async function processTake() {
     if (!memory.transcript) {
       const response = await fetch("/api/transcribe", { method: "POST", signal, headers: { "Content-Type": "audio/wav" }, body: encodeWav(memory.take.samples, memory.take.sample_rate) });
       const data = await response.json();
+      demo?.recordCall({ at_ms: demo.elapsed(), path: "/api/transcribe", status: response.status, request: { take_id: memory.take.id }, response: data });
       signal.throwIfAborted();
       if (!response.ok) throw new Error(data.error ?? "Transcription failed.");
       memory.transcript = data as Transcript;
+      if (memory.demoTake) { memory.demoTake.transcript = memory.transcript; demo?.recordTake(memory.demoTake); }
     }
     memory.evidence = prepareEvidence(memory.transcript, hits, memory.take.transport.tempo_bpm);
     const request = memory.transcript.text.trim().slice(0, 500) || "Recorded beatbox demonstration";
+    $("request").value = request;
+    demo?.recordView();
     const completed = await runPatternCommand({ initialState: state, request, selection: gridSelection.snapshot() ?? undefined,
       recording: {
         transcript: memory.transcript.text, hit_count: hits.length,
@@ -575,6 +698,10 @@ async function processTake() {
         return { ...result, model: response.model, usage: response.usage, latency_ms: response.latency_ms, question_count: response.question_count };
       },
     });
+    if (memory.demoTake) {
+      memory.demoTake.metadata = { ...(memory.demoTake.metadata as object), evidence: memory.evidence, decision: memory.decision };
+      demo?.recordTake(memory.demoTake);
+    }
     return completed;
   });
   if (operationVersion === acceptedBefore + 1) {
@@ -652,7 +779,7 @@ $("stop").addEventListener("click", () => {
   render();
 });
 
-$("volume").addEventListener("input", event => player.setVolume(Number($("volume").value)));
+$("volume").addEventListener("input", () => { player.setVolume(Number($("volume").value)); demo?.recordView(); });
 
 $("undo").addEventListener("click", () => {
   void performRequest("Undo (manual)", async () => undoLastChange(state, "Undo (manual)"), true);
@@ -693,9 +820,59 @@ document.querySelector(".examples")?.addEventListener("click", event => {
 
 window.addEventListener("pagehide", cancelWork);
 
+demo = createDemoStudio({
+  context: () => player.captureContext(),
+  connectOutput: destination => player.connectRecording(destination),
+  view: demoSnapshot,
+  onChange: updateControls,
+  onReplayHit: animateHit,
+  onReplayView: view => {
+    replayView = view;
+    $("request").value = view.request;
+    $("request-status").textContent = view.request_status;
+    $("playback-status").textContent = view.playback_status;
+    $("volume").value = String(view.volume);
+    gridSelection.set(view.selection);
+    render();
+  },
+  onReplayEnd: () => {
+    replayView = null;
+    for (const timer of hitTimers.values()) window.clearTimeout(timer);
+    hitTimers.clear();
+    $("jev").className = "jev-kit";
+    $("request").value = replayRestore?.request ?? "";
+    gridSelection.set(replayRestore?.selection ?? null);
+    if (replayRestore) $("volume").value = replayRestore.volume;
+    replayRestore = null;
+    $("playback-status").textContent = "Stopped";
+    $("request-status").textContent = "Demo stopped. Your working beat is unchanged.";
+    render();
+  },
+});
+$("demo-record").addEventListener("click", () => { if (demo?.isRecording()) void demo.finish(); else void demo?.start(); });
+$("demo-play").addEventListener("click", () => {
+  if (demo?.isReplaying()) { demo.stopReplay(); return; }
+  replayRestore = { request: $("request").value, selection: gridSelection.snapshot(), volume: $("volume").value };
+  cancelWork();
+  void demo?.play();
+});
+$("demo-download").addEventListener("click", () => demo?.download());
+$("demo-load").addEventListener("click", () => $("demo-file").click());
+$("demo-file").addEventListener("change", () => {
+  const file = $("demo-file").files?.[0];
+  if (file) void demo?.loadFile(file);
+  $("demo-file").value = "";
+});
+window.addEventListener("pagehide", () => { demo?.stopReplay(); if (demo?.isRecording()) void demo.finish(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) demo?.stopReplay(); });
+
 try {
   const saved = await storage();
   if (saved?.state) state = createPatternState({ ...saved.state, tempo_bpm: saved.state.tempo_bpm ?? saved.tempo_bpm });
   if (Array.isArray(saved?.logs)) logs = saved.logs.slice(-50);
 } catch { $("request-status").textContent = "Browser storage is unavailable; the demo still works for this tab."; }
 render();
+
+void refreshMicrophones();
+
+void demo.restore();

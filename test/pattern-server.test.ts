@@ -231,7 +231,7 @@ test("request tree routes then searches and selects from bounded presets", async
     const search = await fetch(`${url}/api/preset-search`, { method: "POST", headers, body: JSON.stringify({ request: "give me a simple rock beat" }) });
     const searchBody = await search.json();
     assert.equal(search.status, 200);
-    assert.deepEqual(searchBody.candidate_ids, ["simple_backbeat"]);
+    assert.deepEqual(searchBody.candidate_ids, ["simple_backbeat", "simple_kick_snare"]);
 
     const select = await fetch(`${url}/api/preset-select`, { method: "POST", headers, body: JSON.stringify({ request: "give me a simple rock beat", candidate_ids: searchBody.candidate_ids }) });
     assert.equal(select.status, 200);
