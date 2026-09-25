@@ -48,14 +48,15 @@
     <section class="pattern" aria-labelledby="pattern-heading">
       <div class="section-heading"><h2 id="pattern-heading">Your beat</h2><span id="note-count" class="count">0 notes</span></div>
       <section class="transport" aria-label="Pattern playback">
-      <div class="transport-buttons"><button id="play" class="primary">▶ Play loop</button><button id="stop" disabled>■ Stop</button></div>
+      <div class="transport-buttons"><button id="play" class="primary">▶ Play loop</button><button id="stop" disabled>■ Stop</button><button id="new-session" type="button">＋ New session</button><button id="undo" type="button">Undo</button><button id="clear" type="button">Clear beat</button></div>
       <div class="transport-meta"><label>Tempo <input id="tempo" type="number" min="40" max="240" step="1" value="120"> BPM</label><span id="phrase-bars">1 bar</span><span id="phrase-steps">4/4</span><span id="swing-status" role="status">Swing off</span></div>
       <label>Kit <select id="kit"></select></label><span id="kit-status" role="status">Acoustic</span>
       <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8"></label>
-      <span id="playback-status" class="status" role="status">Stopped</span>
+      <span id="playback-status" class="status" role="status"></span>
       </section>
       <div class="grid-scroll"><div id="pattern-grid" class="pattern-bars" tabindex="0" aria-label="Drum pattern"></div></div>
-      <div class="pattern-footer"><div class="beat-actions" aria-label="Beat actions"><button id="undo" type="button">Undo</button><button id="clear" type="button">Clear beat</button></div><div class="grid-legend">Soft <i class="legend-dot soft"></i><i class="legend-dot strong"></i> Strong</div></div>
+      <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button></div>
+      <div class="pattern-footer"><div class="grid-legend">Soft <i class="legend-dot soft"></i><i class="legend-dot strong"></i> Strong</div></div>
     </section>
     <section class="jev-panel" aria-label="Jev playing the drums">
       <div id="jev" class="jev-kit" role="img" aria-label="Jev at a drum kit with hi-hat, crash, snare, tom, and kick drum">
@@ -67,7 +68,6 @@
       <span id="jev-caption" class="jev-caption">JEV IS READY</span>
     </section>
     </div>
-    <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button><div class="session-shortcuts" aria-label="Session controls"><button id="new-session" type="button">＋ New session</button></div></div>
     <div class="session-footer">
       <section id="demo-studio" class="demo-studio" aria-label="Local demo tools" hidden>
         <div class="demo-toolbar"><span class="demo-label">Local demo tools</span><button id="demo-record" type="button" hidden>● Record demo</button><button id="demo-download" type="button" hidden disabled>Download</button><button id="demo-load" type="button" hidden>Load demo</button><input id="demo-file" type="file" accept=".json,application/json" hidden><span id="demo-time" class="count"></span></div>

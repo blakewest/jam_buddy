@@ -814,7 +814,7 @@ $("play").addEventListener("click", async () => {
 $("stop").addEventListener("click", () => {
   cancelWork();
   if (pendingState) { state = pendingState; pendingState = null; persist(); }
-  $("playback-status").textContent = "Stopped";
+  $("playback-status").textContent = "";
   setRequestStatus("Stopped. Ready for your next request.");
   render();
 });
@@ -843,7 +843,7 @@ $("new-session").addEventListener("click", () => {
   $("request").value = "";
   pendingState = null;
   logs = [];
-  $("playback-status").textContent = "Stopped";
+  $("playback-status").textContent = "";
   document.getElementById("beat-workspace")!.hidden = true;
   document.body.classList.add("intro");
   setRequestStatus("Type your idea, or hold the mic to speak.");
@@ -882,7 +882,7 @@ demo = createDemoStudio({
     if (view.request && view.request !== replayView?.request) typeDemoText(view.request);
     replayView = view;
     setRequestStatus(view.request_status);
-    $("playback-status").textContent = view.playback_status;
+    $("playback-status").textContent = view.playback_status === "Stopped" ? "" : view.playback_status;
     $("volume").value = String(view.volume);
     gridSelection.set(view.selection);
     render();
@@ -911,7 +911,7 @@ demo = createDemoStudio({
     gridSelection.set(completed ? null : replayRestore?.selection ?? null);
     if (!completed && replayRestore) $("volume").value = replayRestore.volume;
     replayRestore = null;
-    $("playback-status").textContent = "Stopped";
+    $("playback-status").textContent = "";
     setRequestStatus(completed ? "Demo finished. Your turn to build a beat." : "Demo stopped. Your working beat is unchanged.");
     render();
   },
