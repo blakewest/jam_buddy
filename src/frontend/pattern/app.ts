@@ -89,16 +89,16 @@ let demoTypingText = "";
 const defaultRequestPlaceholder = $("request").placeholder;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-function typeDemoText(text: string) {
-  if (text === demoTypingText) return;
+function typeDemoText(text: string, target: "value" | "placeholder" = "value") {
+  if (`${target}:${text}` === demoTypingText) return;
   cancelAnimationFrame(demoTypingFrame);
-  demoTypingText = text;
+  demoTypingText = `${target}:${text}`;
   const startedAt = performance.now();
   const letters = Array.from(text);
   const durationMs = Math.min(900, letters.length * 18);
   const tick = () => {
     const progress = reducedMotion.matches || !durationMs ? 1 : Math.min(1, (performance.now() - startedAt) / durationMs);
-    $("request").value = letters.slice(0, Math.ceil(letters.length * progress)).join("");
+    $("request")[target] = letters.slice(0, Math.ceil(letters.length * progress)).join("");
     $("request").scrollTop = $("request").scrollHeight;
     if (progress < 1) demoTypingFrame = requestAnimationFrame(tick);
   };
@@ -781,6 +781,7 @@ $("request").addEventListener("keydown", event => {
 });
 
 $("request").addEventListener("input", () => {
+  $("request").classList.remove("demo-invite");
   void player.unlock().catch(() => {});
 });
 
@@ -880,7 +881,11 @@ demo = createDemoStudio({
     hitTimers.clear();
     $("jev").className = "jev-kit";
     $("request").value = completed ? "" : replayRestore?.request ?? "";
-    $("request").placeholder = completed ? "And now your turn! Keep building!" : defaultRequestPlaceholder;
+    $("request").placeholder = defaultRequestPlaceholder;
+    if (completed) {
+      typeDemoText("And now your turn! Keep building!", "placeholder");
+      $("request").classList.add("demo-invite");
+    }
     gridSelection.set(completed ? null : replayRestore?.selection ?? null);
     if (!completed && replayRestore) $("volume").value = replayRestore.volume;
     replayRestore = null;
@@ -892,6 +897,9 @@ demo = createDemoStudio({
 $("demo-record").addEventListener("click", () => { if (demo?.isRecording()) void demo.finish(); else void demo?.start(); });
 $("demo-play").addEventListener("click", () => {
   $("demo-play").classList.remove("demo-invite");
+  $("request").classList.remove("demo-invite");
+  cancelAnimationFrame(demoTypingFrame);
+  demoTypingText = "";
   if (demo?.isReplaying()) { demo.stopReplay(); return; }
   replayRestore = { request: $("request").value, selection: gridSelection.snapshot(), volume: $("volume").value };
   $("request").value = "";
