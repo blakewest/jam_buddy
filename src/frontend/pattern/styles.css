@@ -132,8 +132,9 @@ body:not(.intro) .request-status { text-align: left; }
 .empty { padding: 20px 0; color: #8daaa8; font-size: 12px; }
 pre { max-height: 330px; overflow: auto; padding: 12px; background: #10242c; color: #b3c8c3; white-space: pre-wrap; word-break: break-word; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 @media(max-width: 650px) { .activity-columns { grid-template-columns: 1fr; gap: 20px; }.activity-card { padding: 16px; } }
-footer { padding: 28px 2px 0; color: #91adaa; font-size: 12px; line-height: 1.8; max-width: 760px; }
-footer p { margin: 0 0 12px; }
+footer { padding: 28px 2px; color: #91adaa; font-size: 12px; line-height: 1.8; max-width: 760px; }
+footer p { margin: 0; }
+footer .footer-links { margin-top: 24px; }
 footer a { color: #c5e6b6; }
 .footer-links { font-size: 11px; }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 @media(max-width: 850px) { main { --side-width: 275px; }.jev-panel { overflow: hidden; }.jev-kit { transform: scale(.88); margin: -15px; }}
