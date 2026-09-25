@@ -74,7 +74,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 @keyframes snare-hit { 55% { transform: translate(55px, 31px) rotate(-20deg); } }@keyframes tom-hit { 55% { transform: translate(-28px, 44px) rotate(38deg); } }
 @keyframes cymbal-hit { 50% { filter: brightness(1.45); transform: rotate(2deg); } }@keyframes drum-hit { 50% { filter: brightness(1.4); } }
 @keyframes kick-flash { 35% { background: radial-gradient(circle, #c5e6b6 0, #7fbaa5 23%, #345963 47%, #2a454e 54%); box-shadow: 0 0 19px #bfe9b791, 0 0 35px #bfe9b744; } }
-.prompt { max-width: none; margin: 12px auto 36px; text-align: center; transition: margin-top .55s ease, margin-bottom .55s ease; }
+.prompt { max-width: none; margin: 12px auto 36px; text-align: center; }
+.initializing main { visibility: hidden; }
+.animate-workspace .prompt { transition: margin-top .55s ease, margin-bottom .55s ease; }
 .intro .prompt { margin-top: clamp(80px, 18vh, 200px); margin-bottom: 26vh; }
 .prompt h1 { max-width: 680px; margin: 0 auto 24px; font-size: clamp(27px, 3.5vw, 42px); line-height: 1.2; letter-spacing: -.04em; }
 body:not(.intro) .prompt h1 { display: none; }
@@ -95,7 +97,7 @@ body:not(.intro) .prompt-row textarea { min-height: 44px; height: 44px; }
 .submit-button, .demo-start { flex: none; min-height: 42px; padding: 11px 14px; border-radius: 10px; font-size: 12px; white-space: nowrap; }
 .demo-start { background: #293b46; border-color: #8d9fac; }
 #beat-workspace[hidden] { display: none; }
-#beat-workspace { animation: workspace-in .6s ease both; }
+.animate-workspace #beat-workspace { animation: workspace-in .6s ease both; }
 @keyframes workspace-in { from { opacity: 0; transform: translateY(65px); } to { opacity: 1; transform: translateY(0); } }
 body:not(.intro) .workspace { min-height: min(55vh, 560px); }
 .microphone-settings { position: relative; color: #819f9f; font-size: 11px; }
@@ -166,4 +168,4 @@ footer a { color: #c5e6b6; }
 
 #demo-studio[hidden] { display: none; }
 
-@media (prefers-reduced-motion: reduce) { .prompt { transition: none; } #beat-workspace { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .animate-workspace .prompt { transition: none; } .animate-workspace #beat-workspace { animation: none; } }

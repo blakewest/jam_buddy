@@ -85,9 +85,10 @@ function setRequestStatus(message: string, hint = false) {
   $("request-status").classList.toggle("is-hint", hint);
 }
 
-function revealWorkspace() {
+function revealWorkspace(animate = true) {
   const workspace = document.getElementById("beat-workspace")!;
   if (!workspace.hidden) return;
+  document.body.classList.toggle("animate-workspace", animate);
   workspace.hidden = false;
   document.body.classList.remove("intro");
 }
@@ -945,8 +946,9 @@ try {
   if (saved?.state) state = createPatternState({ ...saved.state, tempo_bpm: saved.state.tempo_bpm ?? saved.tempo_bpm });
   if (Array.isArray(saved?.logs)) logs = saved.logs.slice(-50);
 } catch { setRequestStatus("Browser storage is unavailable; the demo still works for this tab."); }
-if (state.pattern.notes.length || logs.length) revealWorkspace();
+if (state.pattern.notes.length || logs.length) revealWorkspace(false);
 render();
+document.body.classList.remove("initializing");
 
 void refreshMicrophones();
 
