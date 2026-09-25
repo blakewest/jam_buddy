@@ -199,3 +199,5 @@ With the QA server running, run `QA_URL=http://127.0.0.1:3210 node dist/scripts/
 ## Vercel
 
 The checked-in configuration builds the TypeScript app and includes its compiled browser modules and samples. Set `TYPESAFE_API_KEY` and `OPENROUTER_API_KEY` (for voice transcription) in Vercel. The home page is the pattern builder; the timing lab is at `/timing.html`. Existing `/pattern.html` links still work.
+
+Vercel Web Analytics loads on deployed HTML pages only. Enable **Analytics** in the Vercel project dashboard, then deploy to activate its routes. Local QA does not load analytics. This uses Vercel's hosted pageview script without sending custom events, voice recordings, or command text.

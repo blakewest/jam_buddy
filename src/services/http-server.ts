@@ -188,7 +188,10 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       const [file, contentType] = PUBLIC_FILES.get(path)!;
       try {
         const content = await readFile(file);
-        res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-store" }).end(content);
+        const body = deployed && contentType === "text/html"
+          ? content.toString("utf8").replace("</head>", '<script defer src="/_vercel/insights/script.js"></script>\n</head>')
+          : content;
+        res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-store" }).end(body);
       } catch { json(res, 404, { error: "File not found." }); }
       return;
     }
