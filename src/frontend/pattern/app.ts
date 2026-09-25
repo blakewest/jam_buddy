@@ -883,7 +883,7 @@ demo = createDemoStudio({
     $("request").value = completed ? "" : replayRestore?.request ?? "";
     $("request").placeholder = defaultRequestPlaceholder;
     if (completed) {
-      typeDemoText("And now your turn! Keep building!", "placeholder");
+      typeDemoText("and now your turn! Keep building on this beat or start fresh!", "placeholder");
       $("request").classList.add("demo-invite");
     }
     gridSelection.set(completed ? null : replayRestore?.selection ?? null);
