@@ -1,3 +1,5 @@
+import { selectionRegions } from "../core/pattern/selection.js";
+import type { BeatSelection } from "../core/pattern/selection.js";
 import { INSTRUMENTS } from "../core/pattern/state.js";
 
 import type { PatternJevState } from "../core/pattern/state.js";
@@ -12,22 +14,24 @@ export function buildVelocityEditQuestions(state: PatternJevState) {
       decrease_lots: "Much quieter, a lot softer, really quiet: decrease each selected note once by 32",
       other: "Not a relative note-velocity change, an unsupported numeric amount, a mixed edit, or unresolved references. Ordinary quiet-down/softer requests belong to decrease.",
     }),
-    instrument: choice("Which instrument does this velocity request explicitly target? Unqualified hi-hats means both closed and open hats. Choose unknown for unclear references like 'those' without an explicit target.", { ...Object.fromEntries(INSTRUMENTS.map(i => [i, i])), hats: "Hi-hats, open and closed", all: "All drums", unknown: "Unclear or multiple instruments other than hats/all" }),
+    instrument: choice("Which instrument does this velocity request explicitly target? Unqualified hi-hats means both closed and open hats. When a selection is present, 'this', 'these' or 'those' with no named instrument means selected. Choose unknown only when no target can be resolved.", { ...Object.fromEntries(INSTRUMENTS.map(i => [i, i])), selected: "The highlighted drum lanes, when selection is present", hats: "Hi-hats, open and closed", all: "All drums", unknown: "Unclear or multiple instruments other than hats/all" }),
     beat_scope: choice("Does the request specify numbered beats?", { all: "No numbered restriction, all beats", selected: "Specific numbered beats" }),
-    subdivision: choice("Which positions within each beat are requested? 'On beats 3 and 4' means onbeats only; offbeats means the eighth-note 'ands'. Unqualified 'make hats louder' means all notes.", { onbeats: "Numbered beats/on-beats", offbeats: "Off-beats/ands", all: "All subdivisions" }),
+    subdivision: choice("Read ONLY the literal words in `request` to choose positions within a beat. Ignore beat numbers in selection and history for this question. Default ALL: 'make this softer', 'these louder', 'quiet down right here', and 'make hats louder' mean every note in the target area, including subdivisions and human timing. Choose onbeats only when the request itself explicitly asks for numbered on-beat hits, such as 'on beats 3 and 4'. Choose offbeats only for explicit offbeats or eighth-note ands.", { onbeats: "Numbered beats/on-beats", offbeats: "Off-beats/ands", all: "All subdivisions" }),
     bar_scope: choice("Does the request specify bar numbers? Beat numbers are not bar numbers. Default to all bars.", { all: "All bars", selected: "Specific bars" }),
     ...Object.fromEntries(Array.from({ length: state.pattern.meter.numerator }, (_, i) => [`beat_${i + 1}`, { type: "noul", instructions: `Does the request explicitly include beat ${i + 1} among its target beats? Interpret ranges inclusively.` }])),
     ...Object.fromEntries(Array.from({ length: state.pattern.bars }, (_, i) => [`bar_${i + 1}`, { type: "noul", instructions: `Does the request explicitly include bar ${i + 1} among its target bars? Beat numbers are not bar numbers.` }])),
   };
 }
 
-export function velocityIntent(state: PatternJevState, answers: Answers) {
+export function velocityIntent(state: PatternJevState, answers: Answers, selection?: BeatSelection) {
   const deltas: Record<string, number> = { increase: 16, increase_lots: 32, decrease: -16, decrease_lots: -32 };
   const delta = deltas[answers.operation.choice ?? ""];
   const instrument = answers.instrument.choice ?? "unknown";
   if (!delta || instrument === "unknown") return null;
-  const instruments = instrument === "hats" ? ["closed_hat", "open_hat"] : instrument === "all" ? [...INSTRUMENTS] : [instrument];
-  const beats = Array.from({ length: state.pattern.meter.numerator }, (_, i) => i + 1).filter(i => answers.beat_scope.choice === "all" || (answers[`beat_${i}`].noul ?? 0) >= 0.5);
-  const bars = Array.from({ length: state.pattern.bars }, (_, i) => i + 1).filter(i => answers.bar_scope.choice === "all" || (answers[`bar_${i}`].noul ?? 0) >= 0.5);
-  return beats.length && bars.length ? { instruments, beats, bars, subdivision: answers.subdivision.choice ?? "all", delta } : null;
+  const useSelection = selection && answers.selection_scope?.choice === "selected";
+  const regions = useSelection ? selectionRegions(selection) : [];
+  const instruments = instrument === "selected" ? selection?.instruments ?? [] : instrument === "hats" ? ["closed_hat", "open_hat"] : instrument === "all" ? [...INSTRUMENTS] : [instrument];
+  const beats = useSelection ? [...new Set(regions.flatMap(r => r.beats))] : Array.from({ length: state.pattern.meter.numerator }, (_, i) => i + 1).filter(i => answers.beat_scope.choice === "all" || (answers[`beat_${i}`].noul ?? 0) >= 0.5);
+  const bars = useSelection ? regions.map(r => r.bar) : Array.from({ length: state.pattern.bars }, (_, i) => i + 1).filter(i => answers.bar_scope.choice === "all" || (answers[`bar_${i}`].noul ?? 0) >= 0.5);
+  return instruments.length && beats.length && bars.length ? { instruments, beats, bars, subdivision: answers.subdivision.choice ?? "all", delta, ...(useSelection ? { selection } : {}) } : null;
 }

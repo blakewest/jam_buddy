@@ -1,4 +1,6 @@
-import { appendHistory, createPatternState } from "./state.js";
+import { selectionContains, validSelection } from "./selection.js";
+import type { BeatSelection } from "./selection.js";
+import { appendHistory, createPatternState, INSTRUMENTS, MAX_BARS } from "./state.js";
 import { undoLastChange } from "./undo.js";
 import { SWING_CHOICES, nextSwingPercent } from "./swing.js";
 import type { SwingAction } from "./swing.js";
@@ -6,7 +8,7 @@ import { getKit, KITS } from "./kits.js";
 import type { Candidate, HistoryEntry, PatternChange, PatternState } from "./state.js";
 import type { PatternPass, PatternPlan, PatternRunResult } from "./runner.js";
 
-export type RequestBranchId = "recorded_rhythm" | "fill_rhythm" | "change_swing" | "change_tempo" | "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern";
+export type RequestBranchId = "recorded_rhythm" | "fill_rhythm" | "change_swing" | "change_tempo" | "edit_pattern" | "change_kit" | "undo" | "unsupported" | "load_preset" | "shuffle_preset" | "clear_pattern" | "clear_selection" | "duplicate";
 export type RequestQuestionId = "root" | "change_kit" | "change_swing" | "change_tempo";
 export type TempoAction = "increase" | "decrease" | "set_exact" | "unsupported";
 export type NodeAnswer = { selection?: { type: "choice"; choice: string } };
@@ -35,6 +37,7 @@ export type RequestContext = {
   recent_history: HistoryEntry[];
 } | { request: string; recording?: never };
 type CommandOptions = {
+  selection?: BeatSelection;
   initialState: PatternState;
   request: string;
   decideNode: (questionId: RequestQuestionId, state: RequestContext) => Promise<NodeDecision>;
@@ -44,6 +47,7 @@ type CommandOptions = {
   grooveRequest?: (route: RootRoute) => Promise<import("./request-runner.js").TreeResult>;
 };
 type BranchContext = {
+  selection?: BeatSelection;
   state: PatternState;
   request: string;
   ask: (questionId: RequestQuestionId) => Promise<NodeOutcome>;
@@ -88,7 +92,7 @@ export const REQUEST_TREE = {
     id: "root" as const,
     children: {
       recorded_rhythm: { description: "insert a recorded beatbox demonstration; speech-only instructions use the other categories", execute: recordedRhythmBranch },
-      fill_rhythm: { description: "fill regular quarter, eighth or sixteenth notes for one drum across requested beats or bars, including repeating the latest rhythm fill on more beats", execute: (context: BranchContext) => grooveBranch(context, "fill_rhythm") },
+      fill_rhythm: { description: "add regular quarter, eighth or sixteenth notes, or three-hit quarter/eighth triplet groups for one drum in requested beats or bars, including repeating the latest rhythm fill", execute: (context: BranchContext) => grooveBranch(context, "fill_rhythm") },
       edit_pattern: {
         description: "edit drum notes, rhythms, velocities, subtle timing, or phrase length",
         execute: editPatternBranch,
@@ -104,6 +108,8 @@ export const REQUEST_TREE = {
       },
       load_preset: { description: "load a complete beat preset by genre or style", execute: (context: BranchContext) => grooveBranch(context, "load_preset") },
       shuffle_preset: { description: "shuffle to a different beat, including 'no, something else'", execute: (context: BranchContext) => grooveBranch(context, "shuffle_preset") },
+      duplicate: { description: "insert one exact copy of the highlighted selection immediately after it, shifting later hits forward; with no selection, double the whole groove; specific destinations, multiple copies and partial source instructions are unsupported", execute: duplicateBranch },
+      clear_selection: { description: "remove every hit in the highlighted area only; requires an active selection and a request to clear this section", execute: clearSelectionBranch },
       clear_pattern: { description: "clear every note and start with an empty beat", execute: (context: BranchContext) => grooveBranch(context, "clear_pattern") },
       undo: {
         description: "undo the most recent completed change as one unit",
@@ -166,7 +172,7 @@ async function grooveBranch(context: BranchContext, category: RequestBranchId): 
 }
 
 export type RootRoute = { category: RequestBranchId; next_node: string | null; message: string | null };
-const nextNodes: Record<RequestBranchId, string | null> = { recorded_rhythm: "recorded_rhythm", fill_rhythm: "rhythm_fill", change_swing: "change_swing", change_tempo: "change_tempo", edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", shuffle_preset: "preset_shuffle", unsupported: null };
+const nextNodes: Record<RequestBranchId, string | null> = { recorded_rhythm: "recorded_rhythm", fill_rhythm: "rhythm_fill", change_swing: "change_swing", change_tempo: "change_tempo", edit_pattern: "edit_plan", change_kit: "change_kit", undo: "undo", load_preset: "preset_search", clear_pattern: "pattern_clear", clear_selection: "selection_clear", duplicate: "duplicate", shuffle_preset: "preset_shuffle", unsupported: null };
 export const REQUEST_CATEGORIES = Object.freeze(Object.fromEntries(Object.entries(REQUEST_TREE.root.children).map(([id, branch]) => [id, { description: branch.description, next_node: nextNodes[id as RequestBranchId] }])));
 export const unsupportedMessage = unsupportedGuidance;
 export function resolveRoot(category: string): RootRoute {
@@ -229,6 +235,61 @@ async function changeKitBranch(context: BranchContext): Promise<CommandResult> {
   return changeKit(context.state, kitId, context.request);
 }
 
+function duplicateBranch({ state, request, selection }: BranchContext): CommandResult {
+  if (selection && !validSelection(selection, state.pattern)) throw new Error("Invalid beat selection.");
+  const { pattern } = state;
+  const source = selection ?? { instruments: [...INSTRUMENTS], start_beat: 0, end_beat: pattern.bars * pattern.meter.numerator, beats_per_bar: pattern.meter.numerator };
+  const length = source.end_beat - source.start_beat;
+  // The grid stores complete bars; a partial-bar insertion pads the final bar with silence.
+  const bars = Math.ceil((pattern.bars * source.beats_per_bar + length) / source.beats_per_bar);
+  if (bars > MAX_BARS) throw new Error("That copy would exceed eight bars. Select a smaller section or shorten the groove first.");
+  const beatTicks = pattern.ticks_per_quarter * 4 / pattern.meter.denominator;
+  const barTicks = beatTicks * source.beats_per_bar;
+  const insertionTick = source.end_beat * beatTicks;
+  const lengthTicks = length * beatTicks;
+  const changes: PatternChange[] = [{ kind: "resize", before_bars: pattern.bars, after_bars: bars }];
+  const movedNote = (note: typeof pattern.notes[number], offset: number) => {
+    const tick = (note.bar - 1) * barTicks + note.tick + offset;
+    return { ...note, bar: Math.floor(tick / barTicks) + 1, tick: tick % barTicks };
+  };
+  const notes = pattern.notes.map(note => {
+    if ((note.bar - 1) * barTicks + note.tick < insertionTick) return note;
+    const after = movedNote(note, lengthTicks);
+    changes.push({ kind: "modify", note_id: note.id, before: note, after });
+    return after;
+  });
+  let nextId = state.next_note_id;
+  for (const note of pattern.notes) {
+    if (!source.instruments.includes(note.instrument) || !selectionContains(source, note.bar, note.tick / beatTicks + 1)) continue;
+    const after = { ...movedNote(note, lengthTicks), id: `note_${nextId++}` };
+    notes.push(after);
+    changes.push({ kind: "add", note_id: after.id, after });
+  }
+  const message = selection ? "Copied the selection immediately after itself." : "Duplicated the whole groove.";
+  const historyEntry = { request, applied_changes: [message], rejected_changes: [] };
+  return {
+    state: appendHistory({ ...state, pattern: { ...pattern, bars, notes }, next_note_id: nextId }, historyEntry),
+    result: { applied_changes: changes, rejected_changes: [], ignored_changes: [], candidates: [], history_entry: historyEntry },
+    passes: [], plan: null, message, usage: {}, latency_ms: 0, question_count: 0, model: null,
+  };
+}
+
+function clearSelectionBranch({ state, request, selection }: BranchContext): CommandResult {
+  if (!validSelection(selection, state.pattern)) throw new Error("Select an area of the beat first.");
+  const beatTicks = state.pattern.ticks_per_quarter * 4 / state.pattern.meter.denominator;
+  const removed = state.pattern.notes.filter(note => selection.instruments.includes(note.instrument)
+    && selectionContains(selection, note.bar, note.tick / beatTicks + 1));
+  const ids = new Set(removed.map(note => note.id));
+  const changes: PatternChange[] = removed.map(note => ({ kind: "remove", note_id: note.id, before: note }));
+  const message = removed.length ? `Removed ${removed.length} hits from the selected area.` : "The selected area is already empty.";
+  const historyEntry = { request, applied_changes: removed.length ? [message] : [], rejected_changes: [] };
+  return {
+    state: appendHistory({ ...state, pattern: { ...state.pattern, notes: state.pattern.notes.filter(note => !ids.has(note.id)) } }, historyEntry),
+    result: { applied_changes: changes, rejected_changes: [], ignored_changes: [], candidates: [], history_entry: historyEntry },
+    passes: [], plan: null, message, usage: {}, latency_ms: 0, question_count: 0, model: null,
+  };
+}
+
 function undoBranch({ state, request }: BranchContext): CommandResult {
   return undoLastChange(state, request);
 }
@@ -253,7 +314,7 @@ export function changeKit(initialState: PatternState, kitId: string, request: st
   };
 }
 
-export async function runPatternCommand({ initialState, request, decideNode, editPattern, grooveRequest, recording, recordedRhythm }: CommandOptions): Promise<CommandResult> {
+export async function runPatternCommand({ initialState, request, decideNode, editPattern, grooveRequest, recording, recordedRhythm, selection }: CommandOptions): Promise<CommandResult> {
   const state = createPatternState(initialState);
   const routing: RouteDecision[] = [];
   const ask = async (questionId: RequestQuestionId): Promise<NodeOutcome> => {
@@ -269,7 +330,7 @@ export async function runPatternCommand({ initialState, request, decideNode, edi
   const route = await ask(REQUEST_TREE.root.id);
   if (!("next_node" in route)) throw new Error("Invalid root decision.");
   const branch = REQUEST_TREE.root.children[route.next_node];
-  const completed = await branch.execute({ state, request, ask, editPattern, grooveRequest, recordedRhythm });
+  const completed = await branch.execute({ state, request, ask, editPattern, grooveRequest, recordedRhythm, selection });
 
   const usage: Record<string, number> = { ...completed.usage };
   let latencyMs = completed.latency_ms ?? 0;

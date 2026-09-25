@@ -1,0 +1,190 @@
+{
+  "name": "AVL Black Pearl 5-piece subset",
+  "author": "Glen MacArthur",
+  "license": "CC-BY-SA-3.0",
+  "source": "https://github.com/studiorack/avl-drumkits",
+  "source_revision": "b06cb2c27359cbc68a830a82bddced05bd73d1a0",
+  "families": {
+    "kick": [
+      "36-pearl22kick-1.wav",
+      "36-pearl22kick-2.wav",
+      "36-pearl22kick-3.wav",
+      "36-pearl22kick-4.wav",
+      "36-pearl22kick-5.wav"
+    ],
+    "snare_center": [
+      "38-pearlsnare2-1.wav",
+      "38-pearlsnare2-2.wav",
+      "38-pearlsnare2-3.wav",
+      "38-pearlsnare2-4.wav",
+      "38-pearlsnare2-5.wav"
+    ],
+    "snare_rim": [
+      "40-pearlsnare2edge-1.wav",
+      "40-pearlsnare2edge-2.wav",
+      "40-pearlsnare2edge-3.wav",
+      "40-pearlsnare2edge-4.wav",
+      "40-pearlsnare2edge-5.wav"
+    ],
+    "snare_side": [
+      "37-sidestick2-1.wav",
+      "37-sidestick2-2.wav",
+      "37-sidestick2-3.wav",
+      "37-sidestick2-4.wav",
+      "37-sidestick2-5.wav"
+    ],
+    "hat_closed": [
+      "42-sabianrockhatclosed-1.wav",
+      "42-sabianrockhatclosed-2.wav",
+      "42-sabianrockhatclosed-3.wav",
+      "42-sabianrockhatclosed-4.wav",
+      "42-sabianrockhatclosed-5.wav"
+    ],
+    "hat_half": [
+      "46-sabianrockhatsemiopen-1.wav",
+      "46-sabianrockhatsemiopen-2.wav",
+      "46-sabianrockhatsemiopen-3.wav",
+      "46-sabianrockhatsemiopen-4.wav",
+      "46-sabianrockhatsemiopen-5.wav"
+    ],
+    "hat_pedal": [
+      "44-sabianrockhatpedal-1.wav",
+      "44-sabianrockhatpedal-2.wav",
+      "44-sabianrockhatpedal-3.wav",
+      "44-sabianrockhatpedal-4.wav",
+      "44-sabianrockhatpedal-5.wav"
+    ],
+    "hat_open": [
+      "48-sabianrockhatswish-1.wav",
+      "48-sabianrockhatswish-2.wav",
+      "48-sabianrockhatswish-3.wav",
+      "48-sabianrockhatswish-4.wav",
+      "48-sabianrockhatswish-5.wav"
+    ],
+    "hat_three_quarter": [
+      "48-sabianrockhatswish-1.wav",
+      "48-sabianrockhatswish-2.wav",
+      "48-sabianrockhatswish-3.wav",
+      "48-sabianrockhatswish-4.wav",
+      "48-sabianrockhatswish-5.wav"
+    ],
+    "ride_bow": [
+      "51-sabianaax20ride-1.wav",
+      "51-sabianaax20ride-2.wav",
+      "51-sabianaax20ride-3.wav",
+      "51-sabianaax20ride-4.wav",
+      "51-sabianaax20ride-5.wav"
+    ],
+    "ride_bell": [
+      "53-sabianaax20ridebell-1.wav",
+      "53-sabianaax20ridebell-2.wav",
+      "53-sabianaax20ridebell-3.wav",
+      "53-sabianaax20ridebell-4.wav",
+      "53-sabianaax20ridebell-5.wav"
+    ],
+    "crash": [
+      "49-sabianaa16crash-1.wav",
+      "49-sabianaa16crash-2.wav",
+      "49-sabianaa16crash-3.wav",
+      "49-sabianaa16crash-4.wav",
+      "49-sabianaa16crash-5.wav"
+    ],
+    "tom_high": [
+      "45-pearl12tom-1.wav",
+      "45-pearl12tom-2.wav",
+      "45-pearl12tom-3.wav",
+      "45-pearl12tom-4.wav",
+      "45-pearl12tom-5.wav"
+    ],
+    "tom_mid": [
+      "47-pearl13tom2-1.wav",
+      "47-pearl13tom2-2.wav",
+      "47-pearl13tom2-3.wav",
+      "47-pearl13tom2-4.wav",
+      "47-pearl13tom2-5.wav"
+    ],
+    "tom_low": [
+      "41-pearl16floortom-1.wav",
+      "41-pearl16floortom-2.wav",
+      "41-pearl16floortom-3.wav",
+      "41-pearl16floortom-4.wav",
+      "41-pearl16floortom-5.wav"
+    ]
+  },
+  "source_files": {
+    "36-pearl22kick-1.wav": "Samples/36-Pearl22Kick-1.flac",
+    "36-pearl22kick-2.wav": "Samples/36-Pearl22Kick-2.flac",
+    "36-pearl22kick-3.wav": "Samples/36-Pearl22Kick-3.flac",
+    "36-pearl22kick-4.wav": "Samples/36-Pearl22Kick-4.flac",
+    "36-pearl22kick-5.wav": "Samples/36-Pearl22Kick-5.flac",
+    "38-pearlsnare2-1.wav": "Samples/38-PearlSnare2-1.flac",
+    "38-pearlsnare2-2.wav": "Samples/38-PearlSnare2-2.flac",
+    "38-pearlsnare2-3.wav": "Samples/38-PearlSnare2-3.flac",
+    "38-pearlsnare2-4.wav": "Samples/38-PearlSnare2-4.flac",
+    "38-pearlsnare2-5.wav": "Samples/38-PearlSnare2-5.flac",
+    "40-pearlsnare2edge-1.wav": "Samples/40-PearlSnare2Edge-1.flac",
+    "40-pearlsnare2edge-2.wav": "Samples/40-PearlSnare2Edge-2.flac",
+    "40-pearlsnare2edge-3.wav": "Samples/40-PearlSnare2Edge-3.flac",
+    "40-pearlsnare2edge-4.wav": "Samples/40-PearlSnare2Edge-4.flac",
+    "40-pearlsnare2edge-5.wav": "Samples/40-PearlSnare2Edge-5.flac",
+    "37-sidestick2-1.wav": "Samples/37-Sidestick2-1.flac",
+    "37-sidestick2-2.wav": "Samples/37-Sidestick2-2.flac",
+    "37-sidestick2-3.wav": "Samples/37-Sidestick2-3.flac",
+    "37-sidestick2-4.wav": "Samples/37-Sidestick2-4.flac",
+    "37-sidestick2-5.wav": "Samples/37-Sidestick2-5.flac",
+    "42-sabianrockhatclosed-1.wav": "Samples/42-SabianRockHatClosed-1.flac",
+    "42-sabianrockhatclosed-2.wav": "Samples/42-SabianRockHatClosed-2.flac",
+    "42-sabianrockhatclosed-3.wav": "Samples/42-SabianRockHatClosed-3.flac",
+    "42-sabianrockhatclosed-4.wav": "Samples/42-SabianRockHatClosed-4.flac",
+    "42-sabianrockhatclosed-5.wav": "Samples/42-SabianRockHatClosed-5.flac",
+    "46-sabianrockhatsemiopen-1.wav": "Samples/46-SabianRockHatSemiOpen-1.flac",
+    "46-sabianrockhatsemiopen-2.wav": "Samples/46-SabianRockHatSemiOpen-2.flac",
+    "46-sabianrockhatsemiopen-3.wav": "Samples/46-SabianRockHatSemiOpen-3.flac",
+    "46-sabianrockhatsemiopen-4.wav": "Samples/46-SabianRockHatSemiOpen-4.flac",
+    "46-sabianrockhatsemiopen-5.wav": "Samples/46-SabianRockHatSemiOpen-5.flac",
+    "44-sabianrockhatpedal-1.wav": "Samples/44-SabianRockHatPedal-1.flac",
+    "44-sabianrockhatpedal-2.wav": "Samples/44-SabianRockHatPedal-2.flac",
+    "44-sabianrockhatpedal-3.wav": "Samples/44-SabianRockHatPedal-3.flac",
+    "44-sabianrockhatpedal-4.wav": "Samples/44-SabianRockHatPedal-4.flac",
+    "44-sabianrockhatpedal-5.wav": "Samples/44-SabianRockHatPedal-5.flac",
+    "48-sabianrockhatswish-1.wav": "Samples/48-SabianRockHatSwish-1.flac",
+    "48-sabianrockhatswish-2.wav": "Samples/48-SabianRockHatSwish-2.flac",
+    "48-sabianrockhatswish-3.wav": "Samples/48-SabianRockHatSwish-3.flac",
+    "48-sabianrockhatswish-4.wav": "Samples/48-SabianRockHatSwish-4.flac",
+    "48-sabianrockhatswish-5.wav": "Samples/48-SabianRockHatSwish-5.flac",
+    "51-sabianaax20ride-1.wav": "Samples/51-SabianAAX20Ride-1.flac",
+    "51-sabianaax20ride-2.wav": "Samples/51-SabianAAX20Ride-2.flac",
+    "51-sabianaax20ride-3.wav": "Samples/51-SabianAAX20Ride-3.flac",
+    "51-sabianaax20ride-4.wav": "Samples/51-SabianAAX20Ride-4.flac",
+    "51-sabianaax20ride-5.wav": "Samples/51-SabianAAX20Ride-5.flac",
+    "53-sabianaax20ridebell-1.wav": "Samples/53-SabianAAX20RideBell-1.flac",
+    "53-sabianaax20ridebell-2.wav": "Samples/53-SabianAAX20RideBell-2.flac",
+    "53-sabianaax20ridebell-3.wav": "Samples/53-SabianAAX20RideBell-3.flac",
+    "53-sabianaax20ridebell-4.wav": "Samples/53-SabianAAX20RideBell-4.flac",
+    "53-sabianaax20ridebell-5.wav": "Samples/53-SabianAAX20RideBell-5.flac",
+    "49-sabianaa16crash-1.wav": "Samples/49-SabianAA16Crash-1.flac",
+    "49-sabianaa16crash-2.wav": "Samples/49-SabianAA16Crash-2.flac",
+    "49-sabianaa16crash-3.wav": "Samples/49-SabianAA16Crash-3.flac",
+    "49-sabianaa16crash-4.wav": "Samples/49-SabianAA16Crash-4.flac",
+    "49-sabianaa16crash-5.wav": "Samples/49-SabianAA16Crash-5.flac",
+    "45-pearl12tom-1.wav": "Samples/45-Pearl12Tom-1.flac",
+    "45-pearl12tom-2.wav": "Samples/45-Pearl12Tom-2.flac",
+    "45-pearl12tom-3.wav": "Samples/45-Pearl12Tom-3.flac",
+    "45-pearl12tom-4.wav": "Samples/45-Pearl12Tom-4.flac",
+    "45-pearl12tom-5.wav": "Samples/45-Pearl12Tom-5.flac",
+    "47-pearl13tom2-1.wav": "Samples/47-Pearl13Tom2-1.flac",
+    "47-pearl13tom2-2.wav": "Samples/47-Pearl13Tom2-2.flac",
+    "47-pearl13tom2-3.wav": "Samples/47-Pearl13Tom2-3.flac",
+    "47-pearl13tom2-4.wav": "Samples/47-Pearl13Tom2-4.flac",
+    "47-pearl13tom2-5.wav": "Samples/47-Pearl13Tom2-5.flac",
+    "41-pearl16floortom-1.wav": "Samples/41-Pearl16FloorTom-1.flac",
+    "41-pearl16floortom-2.wav": "Samples/41-Pearl16FloorTom-2.flac",
+    "41-pearl16floortom-3.wav": "Samples/41-Pearl16FloorTom-3.flac",
+    "41-pearl16floortom-4.wav": "Samples/41-Pearl16FloorTom-4.flac",
+    "41-pearl16floortom-5.wav": "Samples/41-Pearl16FloorTom-5.flac"
+  },
+  "approximations": {
+    "snare_rim": "Snare edge hit",
+    "hat_three_quarter": "Open hi-hat swish"
+  }
+}

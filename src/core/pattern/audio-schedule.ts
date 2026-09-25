@@ -37,18 +37,27 @@ export function eventsForWindow(pattern: PlaybackPattern, bpm: number, fromTime:
 
 export function splitPatternWindow({ activePattern, activeBpm, pendingPattern, pendingBpm, fromTime, toTime, originTime, boundaryTime, preservePhase = false }: { activePattern: PlaybackPattern; activeBpm: number; pendingPattern: PlaybackPattern | null; pendingBpm: number | null; fromTime: number; toTime: number; originTime: number; boundaryTime: number; preservePhase?: boolean }) {
   if (!pendingPattern || boundaryTime >= toTime) {
-    return { events: eventsForWindow(activePattern, activeBpm, fromTime, toTime, originTime), activePattern, activeBpm, pendingPattern, pendingBpm, didSwap: false };
+    return { events: eventsForWindow(activePattern, activeBpm, fromTime, toTime, originTime), activePattern, activeBpm, pendingPattern, pendingBpm, originTime, didSwap: false };
   }
   const boundary = Math.max(fromTime, boundaryTime);
+  const sameMeter = activePattern.meter.numerator === pendingPattern.meter.numerator && activePattern.meter.denominator === pendingPattern.meter.denominator;
+  const oldPhraseTicks = activePattern.bars * ticksPerBar(activePattern.meter);
+  const newPhraseTicks = pendingPattern.bars * ticksPerBar(pendingPattern.meter);
+  const elapsedTicks = (boundaryTime - originTime) / secondsPerTick(activeBpm);
+  // Boundaries are whole beats; rounding removes floating-point drift at the seam.
+  const phaseTicks = preservePhase && sameMeter ? Math.round(elapsedTicks) % oldPhraseTicks % newPhraseTicks : 0;
+  const nextOriginTime = preservePhase && sameMeter && activePattern.bars === pendingPattern.bars && (pendingBpm ?? activeBpm) === activeBpm
+    ? originTime : boundaryTime - phaseTicks * secondsPerTick(pendingBpm ?? activeBpm);
   return {
     events: [
       ...eventsForWindow(activePattern, activeBpm, fromTime, boundary, originTime),
-      ...eventsForWindow(pendingPattern, pendingBpm ?? activeBpm, boundary, toTime, preservePhase ? originTime : boundaryTime),
+      ...eventsForWindow(pendingPattern, pendingBpm ?? activeBpm, boundary, toTime, nextOriginTime),
     ],
     activePattern: pendingPattern,
     activeBpm: pendingBpm ?? activeBpm,
     pendingPattern: null,
     pendingBpm: null,
+    originTime: nextOriginTime,
     didSwap: true,
   };
 }

@@ -102,3 +102,49 @@ test("failed voice attempts do not hide the preceding hi-hat fill from follow-up
   const context = rhythmFillContext(stateForJev(createPatternState({ recent_history: history }), "Actually add them on the 16th notes"));
   assert.deepEqual(context.recent_history, history);
 });
+
+test("quarter-note triplets add one three-hit group in the chosen bar and undo together", async () => {
+  const before = createPatternState({ bars: 4, notes: [{ id: "note_1", instrument: "kick", bar: 1, tick: 0, velocity: 96 }] });
+  const target = { ...intent, instrument: "snare", note_value: "quarter_triplets", bars: [4], beats: [3] };
+  const result = await fill(before, target);
+  assert.deepEqual(result.result.applied_changes.map(c => [c.after?.bar, c.after?.tick]), [[4,1920],[4,2560],[4,3200]]);
+  assert.deepEqual(result.state.pattern.notes[0], before.pattern.notes[0]);
+  assert.equal((await fill(result.state, target)).result.applied_changes.length, 0);
+  assert.deepEqual(undoLastChange(recordUndoUnit(before, result, "triplet snares").state).state.pattern, before.pattern);
+});
+
+test("eighth-note triplets fit three kicks on beat four without spilling into another bar", async () => {
+  const result = await fill(createPatternState({ bars: 4 }), { ...intent, instrument: "kick", note_value: "eighth_triplets", bars: [4], beats: [4] });
+  assert.deepEqual(result.result.applied_changes.map(c => c.after?.tick), [2880,3200,3520]);
+  assert.ok(result.state.pattern.notes.every(n => n.bar === 4));
+});
+
+test("quarter triplets anchor to the requested beat and reject groups that cannot fit", async () => {
+  const before = createPatternState({ bars: 4 });
+  const target = { ...intent, instrument: "snare", note_value: "quarter_triplets", bars: [4], beats: [2] };
+  assert.deepEqual((await fill(before, target)).result.applied_changes.map(c => c.after?.tick), [960,1600,2240]);
+  await assert.rejects(fill(before, { ...target, beats: [4] }), /triplet.*fit/i);
+  assert.equal(before.pattern.notes.length, 0);
+});
+
+test("triplet interpretation uses contextual placement and supplies compact groove context", async () => {
+  const { rhythmFillIntent, buildRhythmFillQuestions, tripletPlacementContext } = await import("../src/ai/rhythm-fill-questions.js");
+  const { stateForJev } = await import("../src/core/pattern/state.js");
+  const state = stateForJev(createPatternState({ bars: 4, notes: [{ id: "note_1", instrument: "snare", bar: 4, tick: 960, velocity: 64 }] }), "add triplet snares in the 4th bar");
+  const choices = { operation: "fill", instrument: "snare", note_value: "quarter_triplets", triplet_start: "beat_3", beat_scope: "all", bar_scope: "selected", velocity: "medium" };
+  const answers = Object.fromEntries(Object.entries(buildRhythmFillQuestions(state)).map(([id, q]) => [id, q.type === "choice" ? { type: "choice", choice: choices[id as keyof typeof choices] } : { type: "noul", noul: id === "bar_4" ? 1 : 0 }]));
+  answers.triplet_start = { type: "choice", choice: "beat_3" };
+  assert.deepEqual(rhythmFillIntent(state, answers), { instrument: "snare", note_value: "quarter_triplets", bars: [4], beats: [3], velocity: 64 });
+  const context = tripletPlacementContext(state) as unknown as { groove: { snare: number[][] } };
+  assert.deepEqual(context.groove.snare, [[4,960]]);
+});
+
+test("triplet placement candidates contain only groups that fit the meter", async () => {
+  const { buildTripletPlacementQuestions } = await import("../src/ai/rhythm-fill-questions.js");
+  const { stateForJev } = await import("../src/core/pattern/state.js");
+  const state = stateForJev(createPatternState({ meter: { numerator: 6, denominator: 8 } }), "add snare triplets");
+  const answers = Object.fromEntries(Object.entries({ operation: "fill", instrument: "snare", note_value: "quarter_triplets", bar_scope: "all", velocity: "medium" }).map(([id, choice]) => [id, { type: "choice", choice }]));
+  assert.deepEqual(Object.keys(buildTripletPlacementQuestions(state, answers)!.triplet_start.criteria!), ["beat_1", "beat_2", "beat_3", "unknown"]);
+  answers.note_value.choice = "eighth_triplets";
+  assert.deepEqual(Object.keys(buildTripletPlacementQuestions(state, answers)!.triplet_start.criteria!), ["beat_1", "beat_2", "beat_3", "beat_4", "beat_5", "unknown"]);
+});

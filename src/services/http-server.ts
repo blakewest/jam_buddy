@@ -1,12 +1,16 @@
 import { recordingQuestions, validEvidence, validateRecordingDecision } from "../core/recording/decision.js";
+import { validSelection } from "../core/pattern/selection.js";
+import type { BeatSelection } from "../core/pattern/selection.js";
+import { selectionContext, withSelectionQuestions, selectionScopeQuestion } from "../ai/selection-context.js";
 import { handleTranscription } from "./transcription.js";
 import { createServer as httpServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import kitManifest from "../frontend/assets/virtuosity/manifest.json" with { type: "json" };
+import blackPearlManifest from "../frontend/assets/black-pearl/manifest.json" with { type: "json" };
 import { TIMING_QUESTION } from "../ai/timing-question.js";
 import { buildPatternQuestions, buildScopeQuestion, buildTargetQuestion, buildTargetDetails, patternSummary, buildPlanningQuestions } from "../ai/pattern-questions.js";
 import { requestBudgetError } from "../ai/request-budget.js";
-import { buildRhythmFillQuestions, rhythmFillContext, rhythmFillIntent } from "../ai/rhythm-fill-questions.js";
+import { buildRhythmFillQuestions, buildTripletPlacementQuestions, tripletPlacementContext, rhythmFillContext, rhythmFillIntent } from "../ai/rhythm-fill-questions.js";
 import { buildVelocityEditQuestions, velocityIntent } from "../ai/velocity-edit-questions.js";
 import { ROOT_QUESTIONS } from "../ai/request-tree-questions.js";
 import { attributesFromAnswers, buildPresetSelectionQuestions, PRESET_SEARCH_QUESTIONS } from "../ai/preset-questions.js";
@@ -44,6 +48,9 @@ const PUBLIC_FILES = new Map<string, [URL, string]>([
   ["/core/pattern/audio-schedule.js", staticFile("../core/pattern/audio-schedule.js", "text/javascript")],
   ["/core/pattern/drum-pitches.js", staticFile("../core/pattern/drum-pitches.js", "text/javascript")],
   ["/assets/virtuosity/manifest.json", staticFile("../frontend/assets/virtuosity/manifest.json", "application/json")],
+  ["/assets/black-pearl/manifest.json", staticFile("../frontend/assets/black-pearl/manifest.json", "application/json")],
+  ["/assets/black-pearl/NOTICE.txt", staticFile("../frontend/assets/black-pearl/NOTICE.txt", "text/plain")],
+  ["/assets/black-pearl/LICENSE.txt", staticFile("../frontend/assets/black-pearl/LICENSE.txt", "text/plain")],
   ["/core/pattern/musical-time.js", staticFile("../core/pattern/musical-time.js", "text/javascript")],
   ["/core/pattern/presets.js", staticFile("../core/pattern/presets.js", "text/javascript")],
   ["/core/pattern/audition-grooves.js", staticFile("../core/pattern/audition-grooves.js", "text/javascript")],
@@ -57,10 +64,14 @@ const PUBLIC_FILES = new Map<string, [URL, string]>([
 for (const name of ["capture", "analysis", "rhythm", "decision"]) PUBLIC_FILES.set(`/core/recording/${name}.js`, staticFile(`../core/recording/${name}.js`, "text/javascript"));
 for (const name of ["capture", "capture-worklet"]) PUBLIC_FILES.set(`/frontend/pattern/${name}.js`, staticFile(`../frontend/pattern/${name}.js`, "text/javascript"));
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
-const KIT_SAMPLE_PATHS = new Set(Object.values(kitManifest.families).flat().map(file => `/assets/virtuosity/${file}`));
-for (const name of ["kits", "request-tree", "undo", "swing", "rhythm-fill"]) PUBLIC_FILES.set(`/core/pattern/${name}.js`, staticFile(`../core/pattern/${name}.js`, "text/javascript"));
+const KIT_SAMPLE_PATHS = new Set([
+  ...Object.values(kitManifest.families).flat().map(file => `/assets/virtuosity/${file}`),
+  ...Object.values(blackPearlManifest.families).flat().map(file => `/assets/black-pearl/${file}`),
+]);
+for (const name of ["kits", "request-tree", "undo", "swing", "rhythm-fill", "selection"]) PUBLIC_FILES.set(`/core/pattern/${name}.js`, staticFile(`../core/pattern/${name}.js`, "text/javascript"));
 for (const page of ["pattern", "timing", "presets"]) PUBLIC_FILES.set(`/frontend/${page}/app.js`, staticFile(`../frontend/${page}/app.js`, "text/javascript"));
 PUBLIC_FILES.set("/frontend/timing/audio.js", staticFile("../frontend/timing/audio.js", "text/javascript"));
+PUBLIC_FILES.set("/frontend/pattern/selection.js", staticFile("../frontend/pattern/selection.js", "text/javascript"));
 const MODULE_ALIASES: Record<string, string> = { "/app.js": "/frontend/timing/app.js", "/pattern-app.js": "/frontend/pattern/app.js", "/pattern-audio.js": "/frontend/pattern/audio.js", "/timing-audio.js": "/frontend/timing/audio.js", "/presets-app.js": "/frontend/presets/app.js" };
 const exactKeys = (obj: unknown, keys: readonly string[]): obj is Record<string, unknown> => obj !== null && typeof obj === "object" && !Array.isArray(obj) && Object.keys(obj).length === keys.length && keys.every(key => Object.hasOwn(obj, key));
 const midiValue = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 127;
@@ -189,6 +200,12 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       }
       payload = JSON.parse(Buffer.concat(chunks).toString());
     } catch { return json(res, 400, { error: "Invalid JSON." }); }
+    let selectedArea: BeatSelection | undefined;
+    if (payload && typeof payload === "object" && "selection" in payload) {
+      if (!validSelection(payload.selection)) return json(res, 400, { error: "Invalid beat selection." });
+      selectedArea = payload.selection;
+      delete (payload as { selection?: BeatSelection }).selection;
+    }
     const recordingRequest = path === "/api/recording-decision";
     const planRequest = path === "/api/pattern-plan";
     const rhythmRequest = path === "/api/rhythm-fill";
@@ -204,6 +221,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     const validCandidateIds = presetSelectRequest && exactKeys(payload, ["request", "candidate_ids"]) && validRequestText && Array.isArray(payload.candidate_ids) && payload.candidate_ids.length >= 1 && payload.candidate_ids.length <= 8 && new Set(payload.candidate_ids).size === payload.candidate_ids.length && payload.candidate_ids.every(id => presetById(id));
     const validPayload = recordingRequest ? exactKeys(payload, ["state"]) : treeRequest ? exactKeys(payload, ["node_id", "state"]) && isRequestQuestion(payload.node_id) && validRequestState(payload.state, payload.node_id) : planRequest ? exactKeys(payload, ["state"]) : editRequest ? validInstruments : routeRequest || presetSearchRequest ? exactKeys(payload, ["request"]) && validRequestText : presetSelectRequest ? validCandidateIds : exactKeys(payload, ["state"]);
     if (!validPayload || (recordingRequest && !validRecordingState(payload.state)) || (patternRequest && !validPatternState(payload.state)) || (!recordingRequest && !treeRequest && !patternRequest && !routeRequest && !presetSearchRequest && !presetSelectRequest && !validState(payload.state))) return json(res, 400, { error: patternRequest ? "Invalid pattern state." : "Invalid decision state." });
+    if (selectedArea && patternRequest && !validSelection(selectedArea, payload.state.pattern)) return json(res, 400, { error: "Selection no longer fits this pattern." });
     if (!apiKey?.trim()) return json(res, 503, { code: "missing_api_key", error: "Set TYPESAFE_API_KEY in the local .env file, then restart the server." });
     const candidates = presetSelectRequest ? payload.candidate_ids.map(id => presetById(id)!) : [];
     let largeEdit = editRequest && (payload.state.pattern.bars > 1 || payload.instruments.reduce((sum, instrument) => sum + payload.state.pattern.parts[instrument].length, 0) > 6);
@@ -220,6 +238,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     }
     if (recordingRequest) questions = recordingQuestions((payload.state as unknown as { evidence: import("../core/recording/decision.js").RecordingEvidence }).evidence);
     if (treeRequest) questions = REQUEST_QUESTIONS[payload.node_id].buildQuestions();
+    if (selectedArea && (intentRequest || rhythmRequest)) questions = { ...questions, selection_scope: selectionScopeQuestion };
     const abort = new AbortController();
     const timeoutMs = (patternRequest || treeRequest || recordingRequest) ? 10000 : 2000;
     const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -230,6 +249,10 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       const usage: Record<string, number> = {};
       const traversal = [];
       const evaluate = async (state: unknown, nodeQuestions: Questions) => {
+        if (selectedArea) {
+          state = { ...(state as object), selection: selectionContext(selectedArea, patternRequest ? payload.state.pattern : undefined) };
+          nodeQuestions = withSelectionQuestions(nodeQuestions);
+        }
         const budgetError = requestBudgetError(state, nodeQuestions);
         if (budgetError) throw Object.assign(new Error(`${budgetError} Please narrow the edit to one instrument and bar.`), { status: 413 });
         const upstream = await fetchImpl("https://api.typesafe.ai/v1/systemone", {
@@ -273,8 +296,15 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
         const outcome = REQUEST_QUESTIONS[payload.node_id].validate(data.answers);
         return json(res, 200, { answers: data.answers, outcome, model: data.model, usage, question_count: questionCount });
       }
-      if (rhythmRequest) return json(res, 200, { intent: rhythmFillIntent(payload.state, data.answers), answers: data.answers, model: data.model, usage, question_count: questionCount });
-      if (intentRequest) return json(res, 200, { intent: velocityIntent(payload.state, data.answers), answers: data.answers, model: data.model, usage, question_count: questionCount });
+      if (rhythmRequest) {
+        const placementQuestions = buildTripletPlacementQuestions(payload.state, data.answers, selectedArea);
+        if (placementQuestions) {
+          const placement = await evaluate(tripletPlacementContext(payload.state), placementQuestions);
+          Object.assign(data.answers, placement.answers);
+        }
+        return json(res, 200, { intent: rhythmFillIntent(payload.state, data.answers, selectedArea), answers: data.answers, model: data.model, usage, question_count: questionCount });
+      }
+      if (intentRequest) return json(res, 200, { intent: velocityIntent(payload.state, data.answers, selectedArea), answers: data.answers, model: data.model, usage, question_count: questionCount });
       if (routeRequest || presetSearchRequest || presetSelectRequest) {
         if (!validPatternAnswers(data, questions)) return json(res, 502, { error: "TypeSafe returned invalid request-tree answers." });
         if (routeRequest) return json(res, 200, { route: resolveRoot(data.answers.request_category.choice!), answers: data.answers, model: data.model, usage: data.usage, question_count: 1 });

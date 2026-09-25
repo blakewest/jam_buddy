@@ -23,7 +23,7 @@
       <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8"></label>
       <span id="playback-status" class="status" role="status">Stopped</span>
       </section>
-      <div class="grid-scroll"><div id="pattern-grid" class="pattern-bars" aria-label="Drum pattern"></div></div>
+      <div class="grid-scroll"><div id="pattern-grid" class="pattern-bars" tabindex="0" aria-label="Drum pattern"></div></div>
       <div class="pattern-footer"><div class="beat-actions" aria-label="Beat actions"><button id="undo" type="button">Undo</button><button id="clear" type="button">Clear beat</button></div><div class="grid-legend">Soft <i class="legend-dot soft"></i><i class="legend-dot strong"></i> Strong</div></div>
     </section>
     <section class="jev-panel" aria-label="Jev playing the drums">
@@ -36,6 +36,7 @@
       <span id="jev-caption" class="jev-caption">JEV IS READY</span>
     </section>
     </div>
+    <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button></div>
     <section class="prompt" aria-labelledby="prompt-heading">
       <div class="section-heading"><h2 id="prompt-heading" class="sr-only">Ask Jev</h2><span id="pending" class="pending" hidden>Applies next phrase</span></div>
       <form id="request-form">
@@ -47,21 +48,14 @@
       <div class="request-status"><span id="request-status" role="status">Ready when you are.</span></div>
     </section>
     <div class="session-footer">
-    <details class="session-details"><summary>Session details</summary><div class="columns">
-      <section class="history panel" aria-labelledby="history-heading">
-        <div class="section-heading"><div><span class="eyebrow">SESSION</span><h2 id="history-heading">Change history</h2></div></div>
-        <div id="history-list" class="history-list"><p class="empty">Your first change will appear here.</p></div>
-      </section>
-      <section class="inspector panel" aria-labelledby="inspector-heading">
-        <div class="section-heading"><div><span class="eyebrow">LAST RESPONSE</span><h2 id="inspector-heading">Decision inspector</h2></div><span id="reset-score" class="score">Reset —</span></div>
-        <div id="decision-summary" class="decision-summary"><p class="empty">Raw Jev answers and local application rules will appear here.</p></div>
-        <details><summary>Raw state, answers, and application result</summary><pre id="raw">No response yet.</pre></details>
-      </section>
-    </div></details>
-    <button id="new-session" type="button">New session</button>
+      <button id="new-session" type="button">＋ New session</button>
+      <details class="session-details" open>
+        <summary id="history-heading">Session activity</summary>
+        <div id="history-list" class="history-list"><p class="empty">Every groove starts somewhere. Your first move will appear here.</p></div>
+      </details>
     </div>
     <span id="request-meta" class="sr-only">No API call yet</span>
-    <footer id="about">Jam Partner is a local drum loop demo. Patterns and response history stay in this browser. <a href="/">Timing lab →</a></footer>
+    <footer id="about">Jam Partner is a local drum loop demo. Patterns and response history stay in this browser. <a href="/assets/black-pearl/NOTICE.txt">Acoustic sample credits</a> · <a href="/">Timing lab →</a></footer>
   </main>
 </body>
 </html>

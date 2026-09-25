@@ -48,3 +48,17 @@ test("a pending pattern remains pending before the phrase boundary", () => {
   assert.equal(result.didSwap, false);
   assert.equal(result.pendingPattern!.notes[0].instrument, "snare");
 });
+
+test("next-beat tempo changes retain musical position without duplicate hits", () => {
+  const activePattern = pattern(2, { numerator: 4, denominator: 4 }, [note("old", "kick", 1, 960)]);
+  const pendingPattern = pattern(2, { numerator: 4, denominator: 4 }, [note("new", "snare", 1, 960), note("later", "snare", 1, 1920)]);
+  const result = splitPatternWindow({ activePattern, activeBpm: 120, pendingPattern, pendingBpm: 60, fromTime: .4, toTime: 1.6, originTime: 0, boundaryTime: .5, preservePhase: true });
+  assert.deepEqual(result.events.map(hit => [hit.id, hit.time]), [["new", .5], ["later", 1.5]]);
+});
+
+test("changing phrase length preserves position in the current loop", () => {
+  const activePattern = pattern(1, { numerator: 4, denominator: 4 }, []);
+  const pendingPattern = pattern(2, { numerator: 4, denominator: 4 }, [note("new", "kick", 1, 960)]);
+  const result = splitPatternWindow({ activePattern, activeBpm: 120, pendingPattern, pendingBpm: 120, fromTime: 2.4, toTime: 2.6, originTime: 0, boundaryTime: 2.5, preservePhase: true });
+  assert.deepEqual(result.events.map(hit => [hit.id, hit.time]), [["new", 2.5]]);
+});

@@ -39,6 +39,21 @@ test("server exposes the articulation kit manifest and only listed samples", asy
   });
 });
 
+test("server exposes Black Pearl samples, attribution and license", async () => {
+  await withServer(async (url: string) => {
+    const response = await fetch(`${url}/assets/black-pearl/manifest.json`);
+    assert.equal(response.status, 200);
+    const manifest = await response.json();
+    assert.equal((await fetch(`${url}/assets/black-pearl/NOTICE.txt`)).status, 200);
+    assert.equal((await fetch(`${url}/assets/black-pearl/LICENSE.txt`)).status, 200);
+    assert.equal(manifest.license, "CC-BY-SA-3.0");
+    const sample = await fetch(`${url}/assets/black-pearl/${manifest.families.snare_side[0]}`);
+    assert.equal(sample.status, 200);
+    assert.equal(sample.headers.get("content-type"), "audio/wav");
+    assert.equal((await fetch(`${url}/assets/black-pearl/not-listed.wav`)).status, 404);
+  });
+});
+
 function answerQuestions(questions: import("../src/ai/question-types.js").Questions) {
   return Object.fromEntries(Object.entries(questions).map(([key, question]) => {
     if (question.type === "noul") return [key, { type: "noul", noul: 0.1 }];
@@ -306,11 +321,39 @@ test("rhythm endpoint interprets targets together and excludes full note state f
     assert.deepEqual(payload.state.recent_history, history);
     assert.equal("pattern" in payload.state, false);
     assert.equal(requestBudgetError(payload.state, payload.questions), null);
-    const selections: Record<string, string> = { operation: "fill", instrument: "closed_hat", note_value: "sixteenths", beat_scope: "selected", bar_scope: "all", velocity: "medium" };
+    const selections: Record<string, string> = { operation: "fill", instrument: "closed_hat", note_value: "sixteenths", beat_scope: "selected", bar_scope: "all", velocity: "medium", triplet_start: "unknown" };
     const answers = Object.fromEntries(Object.entries(payload.questions).map(([id, question]) => {
       const q = question as {type:string; criteria:Record<string,string>};
       return [id, q.type === "choice" ? { type: "choice", choice: selections[id], confidence: 1, probabilities: Object.fromEntries(Object.keys(q.criteria).map(c => [c, c === selections[id] ? 1 : 0])) } : { type: "noul", noul: id === "beat_1" ? 0 : 1 }];
     }));
     return Response.json({ model: "test-jev", answers, usage: { input_tokens: 1, output_tokens: 1 } });
+  } });
+});
+
+test("triplets resolve the rhythm first and then choose from valid contextual placements", async () => {
+  let calls = 0;
+  const sent = stateForJev(createPatternState({ bars: 4 }), "add triplet snares in the 4th bar");
+  await withServer(async url => {
+    const response = await fetch(`${url}/api/rhythm-fill`, { method: "POST", headers: { "Content-Type": "application/json", Origin: url }, body: JSON.stringify({ state: sent }) });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(calls, 2);
+    assert.deepEqual(result.intent, { instrument: "snare", note_value: "quarter_triplets", bars: [4], beats: [3], velocity: 64 });
+  }, { fetchImpl: async (_url, options) => {
+    const payload = JSON.parse(String(options?.body));
+    calls++;
+    assert.equal(requestBudgetError(payload.state, payload.questions), null);
+    if (calls === 1) assert.equal("groove" in payload.state, false);
+    else {
+      assert.ok(payload.state.groove);
+      assert.deepEqual(Object.keys(payload.questions), ["triplet_start"]);
+      assert.deepEqual(Object.keys(payload.questions.triplet_start.criteria), ["beat_1", "beat_2", "beat_3", "unknown"]);
+    }
+    const selected: Record<string, string> = { operation: "fill", instrument: "snare", note_value: "quarter_triplets", bar_scope: "selected", beat_scope: "all", velocity: "medium", triplet_start: "beat_3" };
+    const answers = Object.fromEntries(Object.entries(payload.questions).map(([id, question]) => {
+      const q = question as { type: string; criteria: Record<string, unknown> };
+      return [id, q.type === "choice" ? { type: "choice", choice: selected[id], confidence: 1, probabilities: Object.fromEntries(Object.keys(q.criteria).map(c => [c, c === selected[id] ? 1 : 0])) } : { type: "noul", noul: id === "bar_4" ? 1 : 0 }];
+    }));
+    return Response.json({ model: "test-jev", answers });
   } });
 });

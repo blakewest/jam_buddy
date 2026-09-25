@@ -28,7 +28,7 @@ function harness(t: TestContext, fetchOverride?: (url: string) => unknown) {
     const path = String(url);
     fetched.push(path);
     if (fetchOverride) await fetchOverride(path);
-    if (path.endsWith("manifest.json")) return Response.json({ families: { kick: ["kick.wav"], hat_open: ["open.wav"], hat_closed: ["closed.wav"] } });
+    if (path.endsWith("manifest.json")) return Response.json({ families: { kick: ["kick.wav"], hat_open: ["open.wav"], hat_closed: ["closed.wav"], tom_low: ["tom.wav"] } });
     // Minimal fetch/audio mocks carry the sample URL through decoding.
     return { ok: true, arrayBuffer: async () => path } as unknown as Response;
   };
@@ -41,12 +41,12 @@ test("one scheduling window keeps old-kit hits before and new-kit hits after the
   const player = createPatternPlayer();
   await player.start(pattern("acoustic"));
   await player.load(pattern("tr_808"));
-  await player.stage(pattern("tr_808"));
+  await player.stage(pattern("tr_808"), 120, "phrase");
   h.tick(1.97);
   const oldHit = h.hits.find(hit => hit.time > 1 && hit.time < 2.05);
   const newHit = h.hits.find(hit => Math.abs(hit.time - 2.05) < 0.001);
   assert.ok(oldHit && newHit);
-  assert.match(oldHit.url, /virtuosity/);
+  assert.match(oldHit.url, /black-pearl/);
   assert.match(newHit.url, /tr_808/);
   assert.ok(newHit.gain < oldHit.gain);
   const count = h.fetched.length;
@@ -81,7 +81,20 @@ test("note edits become audible next beat without restarting the two-bar phrase"
   player.stop();
 });
 
-test("beat edits skip already scheduled audio and structural changes still wait for a phrase", async t => {
+test("electronic kits retain the original acoustic fallback samples", async t => {
+  const h = harness(t);
+  const player = createPatternPlayer();
+  const beat: Pattern = { ...pattern("tr_808"), notes: [
+    { id: "tom", instrument: "floor_tom", bar: 1, tick: 0, velocity: 96 },
+    { id: "kick", instrument: "kick", bar: 1, tick: 0, velocity: 96 },
+  ] };
+  await player.start(beat);
+  assert.ok(h.hits.some(hit => hit.url === "/assets/virtuosity/tom.wav"));
+  assert.ok(!h.fetched.some(path => path.includes("black-pearl")));
+  player.stop();
+});
+
+test("beat edits skip already scheduled audio and structural changes also apply next beat", async t => {
   const h = harness(t);
   const player = createPatternPlayer();
   const before = pattern("acoustic");
@@ -94,13 +107,15 @@ test("beat edits skip already scheduled audio and structural changes still wait 
   h.tick(1);
   assert.ok(h.hits.some(hit => hit.url.includes("closed.wav") && Math.abs(hit.time - 1.05) < 1e-8));
   h.tick(1.06);
-  assert.equal(await player.stage({ ...after, bars: 2 }, 120, "beat"), "phrase");
-  h.tick(1.6);
+  assert.equal(await player.stage({ ...after, bars: 2 }, 120, "beat"), "beat");
+  h.tick(1.5);
   assert.equal(player.hasPendingPattern(), true);
+  h.tick(1.6);
+  assert.equal(player.hasPendingPattern(), false);
   player.stop();
 });
 
-test("staged tempo stays pending until audible and updates the recording clock at the phrase", async t => {
+test("staged tempo stays pending until audible and updates the recording clock at the next beat", async t => {
   const h = harness(t);
   let swaps = 0;
   const player = createPatternPlayer({ onSwap: () => swaps++ });
@@ -110,14 +125,14 @@ test("staged tempo stays pending until audible and updates the recording clock a
   await player.stage(beat, 60);
   assert.equal(player.hasPendingPattern(), true);
   assert.equal(player.snapshot(beat, 0).tempo_bpm, 120);
-  h.tick(3.98);
+  h.tick(1.48);
   assert.equal(swaps, 0);
   assert.equal(player.hasPendingPattern(), true);
-  h.tick(4.06);
+  h.tick(1.56);
   assert.equal(swaps, 1);
   assert.equal(player.hasPendingPattern(), false);
   assert.equal(player.snapshot(beat, 0).tempo_bpm, 60);
-  assert.equal(player.snapshot(beat, 0).origin_context_seconds, 4.05);
+  assert.ok(Math.abs(player.snapshot(beat, 0).origin_context_seconds + 1.45) < 1e-8);
   player.stop();
 });
 
@@ -156,7 +171,7 @@ test("closed hats choke an old-kit open hat across a kit boundary", async t => {
   const next: Pattern = { ...pattern("tr_505"), notes: [{ id: "note_2", instrument: "closed_hat", tick: 0, bar: 1, velocity: 96 }] };
   await player.start(active);
   await player.load(next);
-  await player.stage(next);
+  await player.stage(next, 120, "phrase");
   h.tick(1.97);
   assert.ok(h.stops.some(stop => stop.url.includes("tr_808/open_hat") && Math.abs((stop.time ?? Infinity) - 2.06) < 0.001));
   assert.ok(h.hits.some(hit => hit.url.includes("tr_505/closed_hat") && Math.abs(hit.time - 2.05) < 0.001));
@@ -169,10 +184,25 @@ test("pattern acceptance waits until the audible boundary, not the scheduler loo
   const player = createPatternPlayer({ onSwap: () => { swapped = true; } });
   await player.start(pattern("acoustic"));
   await player.stage(pattern("acoustic"));
-  h.tick(1.97);
+  h.tick(.48);
   assert.equal(swapped, false);
   assert.equal(player.hasPendingPattern(), true);
-  h.tick(2.06);
+  h.tick(.56);
   assert.equal(swapped, true);
+  player.stop();
+});
+
+test("kit and swing changes use the next beat by default", async t => {
+  const h = harness(t);
+  const player = createPatternPlayer();
+  const before: Pattern = { ...pattern("acoustic"), bars: 4, notes: [{ id: "kick", instrument: "kick", bar: 1, tick: 960, velocity: 96 }] };
+  await player.start(before, 120);
+  assert.equal(await player.stage({ ...before, kit_id: "tr_808", swing_percent: 65 }), "beat");
+  h.tick(.48);
+  const hits = h.hits.filter(hit => Math.abs(hit.time - .55) < 1e-8);
+  assert.equal(hits.length, 1);
+  assert.match(hits[0].url, /tr_808/);
+  h.tick(.56);
+  assert.equal(player.hasPendingPattern(), false);
   player.stop();
 });

@@ -47,7 +47,7 @@ test("player fetches only samples used by the current pattern", async () => {
   try {
     const player = createPatternPlayer();
     await player.start(pattern([note("kick", "kick", 36)]));
-    assert.deepEqual(fake.requested, ["/assets/virtuosity/manifest.json", "/assets/virtuosity/kick-layer-2.wav"]);
+    assert.deepEqual(fake.requested, ["/assets/black-pearl/manifest.json", "/assets/black-pearl/kick-layer-2.wav"]);
     player.stop();
   } finally { fake.restore(); }
 });
@@ -77,11 +77,10 @@ test("tempo changed during sample loading applies to the staged pattern", async 
     player.setTempo(90);
     response.resolve(new Response(new ArrayBuffer(8)));
     await staging;
-    fake.advance(2.0);
-    fake.advance(2.5);
-    fake.advance(2.65);
+    fake.advance(.48);
+    fake.advance(.56);
     assert.equal(fake.starts.length, 2);
-    assert.ok(Math.abs(fake.starts[1] - 2.7166666667) < 0.000001);
+    assert.ok(Math.abs(fake.starts[1] - 0.55) < 0.000001);
     player.stop();
   } finally { fake.restore(); }
 });

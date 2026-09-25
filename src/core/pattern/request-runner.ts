@@ -52,7 +52,7 @@ export async function runPatternTree({ state, request, route, searchPresets, sel
     if (!interpretRhythm) throw new Error("Rhythm fill is unavailable.");
     const interpreted = await interpretRhythm();
     record("rhythm_interpret", interpreted);
-    if (!interpreted.intent) return { state, route: routed.route, visits, result: { applied_changes: [], message: "Please name a drum and quarter, eighth or sixteenth notes, optionally with beat or bar numbers." }, model, usage, question_count: questionCount, latency_ms: latencyMs };
+    if (!interpreted.intent) return { state, route: routed.route, visits, result: { applied_changes: [], message: "Please name a drum and quarter, eighth or sixteenth notes, or a quarter/eighth triplet group, optionally with beat or bar numbers." }, model, usage, question_count: questionCount, latency_ms: latencyMs };
     const applied = applyRhythmFill(state, interpreted.intent, request);
     return { ...applied, route: routed.route, visits, model, usage, question_count: questionCount, latency_ms: latencyMs };
   }

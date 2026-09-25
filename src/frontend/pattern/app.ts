@@ -1,3 +1,4 @@
+import { createGridSelection } from "./selection.js";
 import { createRecorder } from "./capture.js";
 import { analyzeTake } from "../../core/recording/analysis.js";
 import { encodeWav } from "../../core/recording/capture.js";
@@ -21,11 +22,13 @@ import { runPatternTree } from "../../core/pattern/request-runner.js";
 import { swungTick } from "../../core/pattern/swing.js";
 import { ticksPerBar } from "../../core/pattern/musical-time.js";
 
-type RequestLog = Partial<CommandResult> & { request: string; local?: boolean };
+type RequestLog = Partial<CommandResult> & { request: string; local?: boolean; beat_ticks?: number };
 interface SavedSession { state: PatternState; logs: RequestLog[]; tempo_bpm?: number }
 type Decide = <T>(url: string, payload: unknown) => Promise<T>;
 
 interface Elements {
+  "selection-summary": HTMLElement;
+  "clear-selection": HTMLButtonElement;
   "tempo": HTMLInputElement;
   "record": HTMLButtonElement;
   "record-cancel": HTMLButtonElement;
@@ -55,10 +58,6 @@ interface Elements {
   "clear": HTMLButtonElement;
   "new-session": HTMLButtonElement;
   "history-list": HTMLElement;
-  "inspector-heading": HTMLElement;
-  "reset-score": HTMLElement;
-  "decision-summary": HTMLElement;
-  "raw": HTMLElement;
 }
 
 function $<K extends keyof Elements>(id: K): Elements[K] {
@@ -69,7 +68,7 @@ function $<K extends keyof Elements>(id: K): Elements[K] {
 const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
 let state = createPatternState();
 let pendingState: PatternState | null = null;
-let pendingBoundary: "beat" | "phrase" = "phrase";
+let pendingBoundary: "beat" | "phrase" = "beat";
 let logs: RequestLog[] = [];
 let busy = false;
 let captureStatus: "idle" | "initializing" | "recording" = "idle";
@@ -79,6 +78,7 @@ const hitTimers = new Map<string, number>();
 let startingPlayback = false;
 let operationVersion = 0;
 let requestAbort: AbortController | null = null;
+const gridSelection = createGridSelection($("pattern-grid"), $("selection-summary"), $("clear-selection"), () => displayedState().pattern, () => busy || !!pendingState || startingPlayback || captureStatus !== "idle" || recordProcessing);
 for (const kit of KITS) {
   const option = document.createElement("option");
   option.value = kit.id;
@@ -189,6 +189,56 @@ function renderGrid() {
   $("phrase-bars").textContent = `${pattern.bars} ${pattern.bars === 1 ? "bar" : "bars"}`;
   $("phrase-steps").textContent = `${pattern.meter.numerator}/${pattern.meter.denominator}`;
   $("tempo").value = String(displayedState().tempo_bpm);
+  gridSelection.refresh();
+}
+
+function activitySteps(log: RequestLog): string[] {
+  const names: Record<string, string> = { edit_pattern: "Edit pattern", fill_rhythm: "Fill rhythm", change_kit: "Change kit", another_kit: "Shuffle kit", keep_current: "Keep current kit", load_preset: "Load beat", shuffle_preset: "Shuffle beat", clear_pattern: "Clear beat", clear_selection: "Clear selection", duplicate: "Duplicate", undo: "Undo", unsupported: "Unsupported request", recorded_rhythm: "Recorded rhythm", change_tempo: "Change tempo", change_swing: "Change swing", edit_plan: "Plan edits", preset_search: "Find a beat", preset_select: "Choose a beat", rhythm_fill: "Build rhythm", rhythm_interpret: "Choose rhythm", edit_interpret: "Interpret edit", velocity_apply: "Adjust velocity", preset_shuffle: "Pick another beat", preset_load: "Load beat", pattern_clear: "Clear beat", edit_intent: "Interpret edit", velocity_edit: "Adjust velocity" };
+  const readable = (value: string) => names[value] ?? value.replaceAll("_", " ").replace(/^./, c => c.toUpperCase());
+  const steps = (log.routing ?? []).flatMap(route => "next_node" in route.outcome ? [readable(route.outcome.next_node)] : [readable(route.outcome.selection)]);
+  for (const visit of log.visits ?? []) {
+    if (visit.node === "root") continue;
+    const label = readable(visit.node);
+    if (!steps.includes(label)) steps.push(label);
+  }
+  return steps.length ? steps : [log.local ? "Direct control" : "Decision not recorded"];
+}
+
+function activityActions(log: RequestLog): string[] {
+  const changes = log.result?.applied_changes ?? [];
+  if (!changes.length) return [log.message ?? "No changes needed."];
+  const groups = new Map<string, { count: number; verb: string; suffix: string; instrument: string; place: string }>();
+  const actions: string[] = [];
+  for (const change of changes) {
+    if (!["add", "remove", "modify"].includes(change.kind)) { actions.push(describeChange(change)); continue; }
+    const note = change.after ?? change.proposed ?? change.before;
+    if (!note) { actions.push(describeChange(change)); continue; }
+    const descriptions: { verb: string; suffix: string }[] = [];
+    if (change.kind === "modify" && change.before) {
+      const before = change.before;
+      if (note.velocity !== before.velocity) descriptions.push({ verb: note.velocity > before.velocity ? "Increased volume on" : "Decreased volume on", suffix: "" });
+      if (note.bar !== before.bar || note.tick !== before.tick) {
+        const earlier = note.bar < before.bar || (note.bar === before.bar && note.tick < before.tick);
+        // Small within-bar changes get a gentler label; no timing precision is implied.
+        const nudge = note.bar === before.bar && Math.abs(note.tick - before.tick) <= 60;
+        descriptions.push({ verb: nudge ? "Nudged" : "Moved", suffix: earlier ? " earlier" : " later" });
+      }
+      if (note.instrument !== before.instrument) descriptions.push({ verb: "Changed", suffix: ` from ${(labels[before.instrument] ?? before.instrument).toLowerCase()}` });
+      else if (note.midi_pitch !== before.midi_pitch) descriptions.push({ verb: "Changed the sound of", suffix: "" });
+    }
+    if (!descriptions.length) descriptions.push({ verb: change.kind === "add" ? "Added" : change.kind === "remove" ? "Removed" : "Updated", suffix: "" });
+    const instrument = (labels[note.instrument] ?? note.instrument).toLowerCase();
+    const beat = log.beat_ticks ? Math.floor(note.tick / log.beat_ticks) + 1 : null;
+    const place = `bar ${note.bar}${beat ? `, beat ${beat}` : ""}`;
+    for (const { verb, suffix } of descriptions) {
+      const key = `${verb}:${suffix}:${instrument}:${place}`;
+      const group = groups.get(key) ?? { count: 0, verb, suffix, instrument, place };
+      group.count++;
+      groups.set(key, group);
+    }
+  }
+  for (const group of groups.values()) actions.push(`${group.verb} ${group.count} ${group.instrument} hit${group.count === 1 ? "" : "s"}${group.suffix} · ${group.place}`);
+  return actions;
 }
 
 function renderHistory() {
@@ -197,25 +247,39 @@ function renderHistory() {
   if (!logs.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "Your first change will appear here.";
+    empty.textContent = "Every groove starts somewhere. Your first move will appear here.";
     list.append(empty);
     return;
   }
-  for (let index = logs.length - 1; index >= 0; index--) {
-    const log = logs[index];
-    const item = document.createElement("div");
-    item.className = "history-item";
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.index = String(index);
-    const title = document.createElement("strong");
-    title.textContent = log.request;
-    const detail = document.createElement("span");
-    const applied = log.result?.applied_changes?.length ?? 0;
-    const rejected = log.result?.rejected_changes?.length ?? 0;
-    detail.textContent = `${log.local ? "Local" : `${Math.round(log.latency_ms ?? 0)} ms`} · ${applied} applied${rejected ? ` · ${rejected} rejected` : ""}`;
-    button.append(title, detail);
-    item.append(button);
+  for (const log of [...logs].reverse()) {
+    const item = document.createElement("article");
+    item.className = "activity-card";
+    const body = document.createElement("div");
+    body.className = "activity-columns";
+    for (const [label, values] of [["Input", [log.request]], ["Jev decisions", activitySteps(log)], ["Actions", activityActions(log)]] as const) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h3");
+      heading.textContent = label;
+      section.append(heading);
+      const content = document.createElement(label === "Input" ? "p" : "ul");
+      content.className = label === "Jev decisions" ? "decision-path" : label === "Actions" ? "activity-actions" : "activity-input";
+      if (label === "Input") content.textContent = values[0];
+      else for (const value of values) {
+        const line = document.createElement("li");
+        line.textContent = value;
+        content.append(line);
+      }
+      section.append(content);
+      body.append(section);
+    }
+    const details = document.createElement("details");
+    details.className = "activity-technical";
+    const toggle = document.createElement("summary");
+    toggle.textContent = "Technical details";
+    const raw = document.createElement("pre");
+    raw.textContent = JSON.stringify(log, null, 2);
+    details.append(toggle, raw);
+    item.append(body, details);
     list.append(item);
   }
 }
@@ -237,38 +301,8 @@ function describeChange(change: CommandResult["result"]["applied_changes"][numbe
     const after = change.after ?? change.proposed;
     return `Changed ${labels[before?.instrument ?? ""] ?? before?.instrument ?? change.note_id} in bar ${before?.bar ?? 1} at tick ${before?.tick ?? "?"}, velocity ${before?.velocity ?? "?"} → ${labels[after?.instrument ?? ""] ?? after?.instrument} in bar ${after?.bar ?? 1} at tick ${after?.tick ?? "?"}, velocity ${after?.velocity ?? "?"}`;
   }
-  return change.source ?? "Change";
-}
-
-function renderInspector(log: RequestLog | null | undefined) {
-  const summary = $("decision-summary");
-  summary.replaceChildren();
-  if (!log) {
-    const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "Raw Jev answers and local application rules will appear here."; summary.append(empty);
-    $("raw").textContent = "No response yet.";
-    $("reset-score").textContent = "Reset —";
-    return;
-  }
-  const result = log.result;
-  $("reset-score").textContent = typeof result?.reset_probability === "number" ? `Reset ${(result.reset_probability * 100).toFixed(1)}%` : log.local ? "Local change" : "Request decision";
-  const rows = [
-    ...(result?.applied_changes ?? []).map(change => ({ status: "applied", change })),
-    ...(result?.rejected_changes ?? []).map(change => ({ status: "rejected", change })),
-    ...(result?.ignored_changes ?? []).map(change => ({ status: "ignored", change })),
-  ];
-  if (!rows.length) {
-    const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = log.message ?? "No changes needed."; summary.append(empty);
-  }
-  for (const row of rows) {
-    const element = document.createElement("div");
-    element.className = `decision-row ${row.status}`;
-    const kind = document.createElement("span"); kind.className = "kind"; kind.textContent = row.status;
-    const description = document.createElement("span"); description.className = "description"; description.textContent = row.status === "rejected" ? `${describeChange(row.change)} · ${"reason" in row.change ? row.change.reason : ""}` : describeChange(row.change);
-    const confidence = document.createElement("span"); confidence.className = "confidence"; confidence.textContent = "score" in row.change && typeof row.change.score === "number" ? `${(row.change.score * 100).toFixed(1)}%` : "";
-    element.append(kind, description, confidence);
-    summary.append(element);
-  }
-  $("raw").textContent = JSON.stringify(log, null, 2);
+  if (change.kind === "preset" || change.kind === "load_preset") return `Loaded ${change.preset_name ?? "a new beat"}`;
+  return change.source ?? "Updated the groove";
 }
 
 function updateControls() {
@@ -276,6 +310,7 @@ function updateControls() {
   const recording = captureStatus !== "idle";
   const locked = busy || pending || startingPlayback || recording;
   $("new-session").disabled = locked;
+  $("clear-selection").disabled = locked;
   $("record").disabled = busy || pending || startingPlayback;
   $("record").textContent = captureStatus === "recording" ? "Recording… release to finish" : captureStatus === "initializing" ? "Preparing microphone…" : "Hold to speak";
   $("record").setAttribute("aria-pressed", String(captureStatus === "recording"));
@@ -287,10 +322,10 @@ function updateControls() {
   $("kit").value = displayedState().pattern.kit_id;
   const currentSwing = state.pattern.swing_percent ?? 50;
   const nextSwing = displayedState().pattern.swing_percent ?? 50;
-  $("swing-status").textContent = currentSwing !== nextSwing ? `Swing ${currentSwing}% → ${nextSwing}% next phrase` : nextSwing === 50 ? "Swing off" : `Swing ${nextSwing}%`;
+  $("swing-status").textContent = currentSwing !== nextSwing ? `Swing ${currentSwing}% → ${nextSwing}% next beat` : nextSwing === 50 ? "Swing off" : `Swing ${nextSwing}%`;
   $("swing-status").classList.toggle("is-active", currentSwing !== nextSwing || nextSwing !== 50);
   const currentKit = getKit(state.pattern.kit_id).name;
-  $("kit-status").textContent = pendingState && pendingState.pattern.kit_id !== state.pattern.kit_id ? `${currentKit} → ${getKit(pendingState.pattern.kit_id).name} next phrase` : currentKit;
+  $("kit-status").textContent = pendingState && pendingState.pattern.kit_id !== state.pattern.kit_id ? `${currentKit} → ${getKit(pendingState.pattern.kit_id).name} next beat` : currentKit;
   $("kit-status").classList.toggle("is-active", !!pendingState && pendingState.pattern.kit_id !== state.pattern.kit_id);
   $("send").disabled = locked;
   $("request").disabled = locked;
@@ -326,11 +361,11 @@ async function startPlayback(pattern: Pattern) {
   }
 }
 
-async function commitOrStage(nextState: PatternState, autoPlay = true, boundary: "beat" | "phrase" = "phrase") {
+async function commitOrStage(nextState: PatternState, autoPlay = true, boundary: "beat" | "phrase" = "beat") {
   if (player.isPlaying()) {
     pendingState = nextState;
     updateControls();
-    pendingBoundary = await player.stage(nextState.pattern, nextState.tempo_bpm, boundary) ?? "phrase";
+    pendingBoundary = await player.stage(nextState.pattern, nextState.tempo_bpm, boundary) ?? "beat";
     $("request-status").textContent = `Accepted changes are waiting for the next ${pendingBoundary}.`;
   } else {
     state = nextState;
@@ -347,12 +382,13 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
   const version = ++operationVersion;
   requestAbort = new AbortController();
   const signal = requestAbort.signal;
+  const selection = gridSelection.snapshot();
   updateControls();
   $("request-status").textContent = local ? "Applying change…" : "Jev is choosing the kind of change…";
   const decide: Decide = async <T>(url: string, payload: unknown): Promise<T> => {
     signal.throwIfAborted();
     const started = performance.now();
-    const response = await fetch(url, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const response = await fetch(url, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(payload as object), ...(selection ? { selection } : {}) }) });
     const data = await response.json();
     signal.throwIfAborted();
     if (!response.ok) throw new Error(data.error ?? `Request failed with HTTP ${response.status}.`);
@@ -367,18 +403,17 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
       if (version !== operationVersion) return;
     }
     completed = recordUndoUnit(state, completed, request);
-    const log = { request, local, message: completed.message, routing: completed.routing, visits: completed.visits, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms ?? 0, model: completed.model, usage: completed.usage, question_count: completed.question_count };
+    const log = { request, local, beat_ticks: state.pattern.ticks_per_quarter * 4 / state.pattern.meter.denominator, message: completed.message, routing: completed.routing, visits: completed.visits, plan: completed.plan, passes: completed.passes, result: completed.result, latency_ms: completed.latency_ms ?? 0, model: completed.model, usage: completed.usage, question_count: completed.question_count };
     logs = [...logs, log].slice(-50);
-    renderInspector(log);
+
     const tokens = Number(completed.usage?.input_tokens ?? 0) + Number(completed.usage?.output_tokens ?? 0);
     $("request-meta").textContent = local ? "Local change · No API call" : `${Math.round(completed.latency_ms)} ms · ${completed.question_count} questions · ${completed.passes.length} edit passes · ${completed.model}${tokens ? ` · ${tokens} tokens` : ""}`;
     if (!local) $("request").value = "";
     if (completed.result.applied_changes.length) {
-      if (completed.result.applied_changes.some(change => change.kind === "reset")) {
-        player.stop();
-        $("playback-status").textContent = "Stopped";
+      if (completed.result.applied_changes.some(change => ["reset", "preset", "load_preset"].includes(change.kind))) {
+        gridSelection.clear();
       }
-      await commitOrStage(completed.state, completed.result.applied_changes.some(change => !["kit", "undo", "swing", "tempo"].includes(change.kind)), !(recordProcessing && takeMemory?.decision?.mode === "replace") && completed.result.applied_changes.every(change => ["add", "modify", "remove"].includes(change.kind)) ? "beat" : "phrase");
+      await commitOrStage(completed.state, completed.result.applied_changes.some(change => !["kit", "undo", "swing", "tempo"].includes(change.kind)));
     }
     else {
       state = completed.state;
@@ -393,7 +428,7 @@ async function performRequest(request: string, run: (decide: Decide) => Promise<
       if (recordProcessing && takeMemory) {
         const log = { request: "Recorded rhythm failed", message, local: false };
         logs = [...logs, log].slice(-50);
-        renderInspector(log); renderHistory();
+        renderHistory();
       }
     }
   } finally {
@@ -441,6 +476,7 @@ function grooveHandler(request: string, decide: Decide) {
 
 function commandForRequest(request: string, decide: Decide) {
   return runPatternCommand({
+    selection: gridSelection.snapshot() ?? undefined,
     initialState: state,
     request,
     grooveRequest: grooveHandler(request, decide),
@@ -522,7 +558,7 @@ async function processTake() {
     }
     memory.evidence = prepareEvidence(memory.transcript, hits, memory.take.transport.tempo_bpm);
     const request = memory.transcript.text.trim().slice(0, 500) || "Recorded beatbox demonstration";
-    const completed = await runPatternCommand({ initialState: state, request,
+    const completed = await runPatternCommand({ initialState: state, request, selection: gridSelection.snapshot() ?? undefined,
       recording: {
         transcript: memory.transcript.text, hit_count: hits.length,
         hit_onsets_seconds: hits.map(hit => Number(hit.onset_seconds.toFixed(3))),
@@ -575,7 +611,7 @@ $("tempo").addEventListener("change", () => {
   const next = { ...state, tempo_bpm: Math.min(240, Math.max(40, Number.isFinite(value) ? value : 120)) };
   if (player.isPlaying()) {
     // Keep the recording snapshot on the audible tempo and lock capture until
-    // the phrase-boundary swap commits the new state.
+    // the beat-boundary swap commits the new state.
     void commitOrStage(next, false).catch(error => {
       pendingState = null;
       $("request-status").textContent = error instanceof Error ? error.message : String(error);
@@ -628,13 +664,14 @@ $("clear").addEventListener("click", () => {
   const result: CommandResult["result"] = { candidates: [], applied_changes: [{ kind: "reset" }], rejected_changes: [], ignored_changes: [], history_entry: entry };
   const log = { request: entry.request, result, local: true };
   logs = [...logs, log].slice(-50);
-  renderInspector(log);
+
   commitOrStage(recordUndoUnit(state, { state: next, result }, entry.request).state);
 });
 
 $("new-session").addEventListener("click", () => {
   cancelWork();
   state = createPatternState();
+  gridSelection.clear();
   takeMemory = null;
   $("request").value = "";
   pendingState = null;
@@ -642,14 +679,9 @@ $("new-session").addEventListener("click", () => {
   $("playback-status").textContent = "Stopped";
   $("request-status").textContent = "New empty session ready.";
   $("request-meta").textContent = "No API call yet";
-  renderInspector(null);
+
   render();
   persist();
-});
-
-$("history-list").addEventListener("click", event => {
-  const index = event.target instanceof Element ? event.target.closest("button")?.dataset.index : undefined;
-  if (index !== undefined) renderInspector(logs[Number(index)]);
 });
 
 document.querySelector(".examples")?.addEventListener("click", event => {
@@ -665,6 +697,5 @@ try {
   const saved = await storage();
   if (saved?.state) state = createPatternState({ ...saved.state, tempo_bpm: saved.state.tempo_bpm ?? saved.tempo_bpm });
   if (Array.isArray(saved?.logs)) logs = saved.logs.slice(-50);
-  if (logs.length) renderInspector(logs.at(-1));
 } catch { $("request-status").textContent = "Browser storage is unavailable; the demo still works for this tab."; }
 render();

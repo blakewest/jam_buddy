@@ -8,13 +8,15 @@ const LOOKAHEAD_SECONDS = 0.1;
 const POLL_MS = 25;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const sampleIndex = (velocity: number, count: number) => Math.min(count - 1, Math.floor((velocity - 1) * count / 127));
+const acousticFolder = (kitId = "acoustic") => kitId === "acoustic" ? "black-pearl" : "virtuosity";
+type KitManifest = { families: Record<string, string[]> };
 
 export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onHit }: { onError?: (message: string) => void; onSwap?: (pattern: PlaybackPattern) => void; onHit?: (instrument: string) => void } = {}) {
   let context: AudioContext;
   let output: GainNode;
   let timer: number | null;
-  let manifest: { families: Record<string, string[]> };
-  let manifestRequest: Promise<typeof manifest> | null;
+  const manifests = new Map<string, KitManifest>();
+  const manifestRequests = new Map<string, Promise<KitManifest>>();
   let playing = false;
   let activePattern: PlaybackPattern = { bars: 1, meter: { numerator: 4, denominator: 4 }, ticks_per_quarter: 960, notes: [] };
   let pendingPattern: PlaybackPattern | null = null;
@@ -22,7 +24,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
   let activeBpm = 120;
   let pendingBpm: number | null = null;
   let pendingBoundaryTime: number | null = null;
-  let pendingBoundary: "beat" | "phrase" = "phrase";
+  let pendingBoundary: "beat" | "phrase" = "beat";
   let originTime = 0;
   let scheduledThrough = 0;
   let startVersion = 0;
@@ -32,19 +34,14 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
   const openHatSources = new Set<AudioBufferSourceNode>();
   const visualTimers = new Set<number>();
 
-  async function kitManifest() {
-    if (manifest) return manifest;
-    if (!manifestRequest) manifestRequest = fetch("/assets/virtuosity/manifest.json")
+  async function kitManifest(kitId?: string) {
+    const folder = acousticFolder(kitId);
+    if (manifests.has(folder)) return manifests.get(folder)!;
+    if (!manifestRequests.has(folder)) manifestRequests.set(folder, fetch(`/assets/${folder}/manifest.json`)
       .then(response => { if (!response.ok) throw new Error("Could not load the drum kit manifest."); return response.json(); })
-      .then(data => { manifest = data; return data; })
-      .catch(error => { manifestRequest = null; throw error; });
-    return manifestRequest;
-  }
-
-  function sampleFor(family: string, velocity: number) {
-    const files = manifest.families[family];
-    if (!files?.length) throw new Error(`Missing drum sound: ${family}.`);
-    return files[sampleIndex(velocity, files.length)];
+      .then(data => { manifests.set(folder, data); return data; })
+      .catch(error => { manifestRequests.delete(folder); throw error; }));
+    return manifestRequests.get(folder)!;
   }
 
   function playbackSample(note: PatternNote, kitId = "acoustic") {
@@ -55,14 +52,17 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
     }
     // Electronic packs contain four voices; keep the acoustic articulations for other lanes.
     const family = sampleFamily(pitchForNote(note));
-    const count = manifest.families[family].length;
+    const folder = acousticFolder(kitId);
+    const files = manifests.get(folder)?.families[family];
+    if (!files?.length) throw new Error(`Missing drum sound: ${family}.`);
+    const count = files.length;
     const ceiling = Math.ceil((sampleIndex(note.velocity, count) + 1) * 127 / count);
-    return { url: `/assets/virtuosity/${sampleFor(family, note.velocity)}`, gain: note.velocity / ceiling };
+    return { url: `/assets/${folder}/${files[sampleIndex(note.velocity, count)]}`, gain: note.velocity / ceiling };
   }
 
   async function prepare(pattern: PlaybackPattern) {
     ensureContext();
-    await kitManifest();
+    await kitManifest(pattern.kit_id);
     const paths = new Set(pattern.notes.map(note => playbackSample(note, pattern.kit_id).url));
     await Promise.all([...paths].filter(path => !buffers.has(path)).map(async path => {
       const response = await fetch(path);
@@ -146,7 +146,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
     pendingPattern = window.pendingPattern;
     pendingBpm = window.pendingBpm;
     if (window.didSwap) {
-      if (pendingBoundary === "phrase") originTime = boundaryTime;
+      originTime = window.originTime;
       pendingBoundaryTime = null;
       audibleSwap = { pattern: clone(activePattern), time: boundaryTime + (context.outputLatency ?? 0) + (context.baseLatency ?? 0) };
     }
@@ -187,7 +187,7 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
     pendingPattern = null;
     pendingBpm = null;
     pendingBoundaryTime = null;
-    pendingBoundary = "phrase";
+    pendingBoundary = "beat";
     audibleSwap = null;
     playing = false;
     if (timer) window.clearInterval(timer);
@@ -206,18 +206,14 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
     return originTime + (Math.floor(Math.max(0, Math.max(context.currentTime, scheduledThrough) - originTime) / interval) + 1) * interval;
   }
 
-  async function stage(pattern: PlaybackPattern, bpm = activeBpm, boundary: "beat" | "phrase" = "phrase") {
+  async function stage(pattern: PlaybackPattern, bpm = activeBpm, boundary: "beat" | "phrase" = "beat") {
     const update = { bpm };
     loadingUpdate = update;
     try {
       if (playing) await load(pattern);
       if (loadingUpdate !== update) return;
       if (playing) {
-        // Mid-phrase edits must retain the existing timeline and sounds.
-        pendingBoundary = boundary === "beat" && update.bpm === activeBpm
-          && pattern.bars === activePattern.bars && pattern.meter.numerator === activePattern.meter.numerator
-          && pattern.meter.denominator === activePattern.meter.denominator
-          && pattern.kit_id === activePattern.kit_id && pattern.swing_percent === activePattern.swing_percent ? "beat" : "phrase";
+        pendingBoundary = boundary;
         pendingBoundaryTime = nextBoundaryTime(pendingBoundary);
         pendingPattern = clone(pattern);
         pendingBpm = update.bpm;
@@ -236,8 +232,8 @@ export function createPatternPlayer({ onError = () => {}, onSwap = () => {}, onH
     if (playing) {
       pendingPattern ??= clone(activePattern);
       pendingBpm = bpm;
-      pendingBoundary = "phrase";
-      pendingBoundaryTime = nextBoundaryTime("phrase");
+      pendingBoundary = "beat";
+      pendingBoundaryTime = nextBoundaryTime("beat");
     } else activeBpm = bpm;
   }
 

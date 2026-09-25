@@ -15,12 +15,16 @@ test("every active preset articulation maps to a named drum sound", () => {
   assert.notEqual(sampleFamily(26), sampleFamily(46));
 });
 
-test("the kit manifest points only to real WAV samples", async () => {
-  const root = new URL("../src/frontend/assets/virtuosity/", import.meta.url);
+for (const [folder, license] of [["virtuosity", "CC0-1.0"], ["black-pearl", "CC-BY-SA-3.0"]]) test(`${folder} covers every articulation with real WAV samples`, async () => {
+  const root = new URL(`../src/frontend/assets/${folder}/`, import.meta.url);
   const manifest = JSON.parse(await readFile(new URL("manifest.json", root), "utf8"));
-  assert.equal(manifest.license, "CC0-1.0");
+  assert.equal(manifest.license, license);
+  for (const preset of PRESETS) for (const note of preset.notes) {
+    assert.ok(manifest.families[sampleFamily(pitchForNote(note))]?.length, `${preset.id}: MIDI ${pitchForNote(note)}`);
+  }
   for (const paths of Object.values(manifest.families as Record<string, string[]>)) {
     assert.ok(paths.length > 0);
+    if (folder === "black-pearl") assert.equal(paths.length, 5);
     for (const path of paths) {
       assert.match(path, /^[a-z0-9_-]+\.wav$/);
       const bytes = await readFile(new URL(path, root));

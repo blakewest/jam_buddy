@@ -1,6 +1,8 @@
+import { selectionContains, validSelection } from "./selection.js";
+import type { BeatSelection } from "./selection.js";
 import { appendHistory, createPatternState, INSTRUMENTS } from "./state.js";
 
-export type VelocityIntent = { instruments: string[]; bars: number[]; beats: number[]; subdivision: string; delta: number };
+export type VelocityIntent = { instruments: string[]; bars: number[]; beats: number[]; subdivision: string; delta: number; selection?: BeatSelection };
 export function applyVelocityEdit(inputState: import("./state.js").PatternState, intent: VelocityIntent, request: string) {
   const state = createPatternState(inputState);
   const { instruments, bars, beats, subdivision, delta } = intent;
@@ -8,12 +10,14 @@ export function applyVelocityEdit(inputState: import("./state.js").PatternState,
     || !Array.isArray(bars) || !bars.length || bars.some(b => !Number.isInteger(b) || b < 1 || b > state.pattern.bars)
     || !Array.isArray(beats) || !beats.length || beats.some(b => !Number.isInteger(b) || b < 1 || b > state.pattern.meter.numerator)
     || !["onbeats", "offbeats", "all"].includes(subdivision)) throw new Error("Invalid velocity edit targets.");
+  if (intent.selection && !validSelection(intent.selection, state.pattern)) throw new Error("Invalid beat selection.");
   const beatTicks = 960 * 4 / state.pattern.meter.denominator;
   // Small tolerance preserves human timing around nominal positions.
   const tolerance = 60;
   const applied: { kind: "modify"; note_id: string; before: import("./state.js").PatternNote; after: import("./state.js").PatternNote }[] = [];
   const notes = state.pattern.notes.map(note => {
     if (!instruments.includes(note.instrument) || !bars.includes(note.bar)) return note;
+    if (intent.selection && !selectionContains(intent.selection, note.bar, note.tick / beatTicks + 1)) return note;
     const targets = beats.flatMap(beat => subdivision === "onbeats" ? [(beat - 1) * beatTicks] : subdivision === "offbeats" ? [(beat - 0.5) * beatTicks] : []);
     const matches = subdivision === "all" ? beats.includes(Math.floor(note.tick / beatTicks) + 1) : targets.some(tick => Math.abs(note.tick - tick) <= tolerance);
     if (!matches) return note;
