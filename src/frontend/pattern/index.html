@@ -11,7 +11,7 @@
   <main>
     <header>
       <span class="wordmark">JAM PARTNER</span>
-      <nav class="header-links" aria-label="Site"><a href="#about">About</a><a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav>
+      <nav class="header-links" aria-label="Site"><a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav>
     </header>
     <div class="workspace">
     <section class="pattern" aria-labelledby="pattern-heading">
@@ -57,7 +57,21 @@
         </div>
       </form>
       <button id="record-cancel" class="record-cancel" type="button" hidden>Cancel recording</button>
-      <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a little swing</button><button type="button">Swing it harder</button><button type="button">Make the snare louder</button></div>
+      <p class="examples-label" id="examples-label">Try telling Jev things like…</p>
+      <div class="examples" aria-labelledby="examples-label">
+        <button type="button" data-branch="load_preset">Give me a simple backbeat</button>
+        <button type="button" data-branch="shuffle_preset">Try a different beat</button>
+        <button type="button" data-branch="edit_pattern">Make the snare louder</button>
+        <button type="button" data-branch="fill_rhythm">Add quiet eighth-note hats</button>
+        <button type="button" data-branch="change_swing">Add a little swing</button>
+        <button type="button" data-branch="change_tempo">Set the tempo to 100 BPM</button>
+        <button type="button" data-branch="change_kit">Switch to the 808 kit</button>
+        <button type="button" data-branch="duplicate">Double the whole groove</button>
+        <button type="button" data-branch="clear_selection">Clear the selected section</button>
+        <button type="button" data-branch="clear_pattern">Clear the whole beat</button>
+        <button type="button" data-branch="undo">Undo the last change</button>
+        <button type="button" data-branch="recorded_rhythm">Use my beatbox rhythm</button>
+      </div>
       <div class="request-status"><span id="request-status" role="status">Ready when you are.</span></div>
     </section>
     <div class="session-footer">
@@ -71,7 +85,11 @@
       </details>
     </div>
     <span id="request-meta" class="sr-only">No API call yet</span>
-    <footer id="about">Jam Partner is a local drum loop demo. Patterns and response history stay in this browser. <a href="/assets/black-pearl/NOTICE.txt">Acoustic sample credits</a> · <a href="/timing.html">Timing lab →</a></footer>
+    <footer>
+      <p>My name is <a href="https://www.linkedin.com/in/blakewest87/" target="_blank" rel="noopener noreferrer">Blake West</a>. This is a simple, fun personal project to demo using <a href="https://typesafe.ai" target="_blank" rel="noopener noreferrer">Jev</a>. When you’re creating, you want to stay in the flow, so this seemed like a fun use case for Jev’s incredible speed and low cost.</p>
+      <p>Feel free to contribute or tell me your ideas! The GitHub project is <a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">here</a>.</p>
+      <p class="footer-links"><a href="/assets/black-pearl/NOTICE.txt">Acoustic sample credits</a> · <a href="/timing.html">Timing lab →</a></p>
+    </footer>
   </main>
 </body>
 </html>

@@ -329,9 +329,19 @@ function activityActions(log: RequestLog): string[] {
   return actions;
 }
 
+function sizeHistory() {
+  const list = $("history-list");
+  const cards = list.querySelectorAll<HTMLElement>(".activity-card");
+  const height = cards.length > 5 ? cards[4].getBoundingClientRect().bottom - cards[0].getBoundingClientRect().top : 0;
+  list.style.maxHeight = height > 0 ? `${height}px` : "none";
+}
+
+new ResizeObserver(sizeHistory).observe($("history-list"));
+
 function renderHistory() {
   const list = $("history-list");
   list.replaceChildren();
+  requestAnimationFrame(sizeHistory);
   const activity = replayView?.activity ?? activitySnapshot();
   if (!activity.length) {
     const empty = document.createElement("p");
@@ -361,14 +371,7 @@ function renderHistory() {
       section.append(content);
       body.append(section);
     }
-    const details = document.createElement("details");
-    details.className = "activity-technical";
-    const toggle = document.createElement("summary");
-    toggle.textContent = "Technical details";
-    const raw = document.createElement("pre");
-    raw.textContent = JSON.stringify(row.details, null, 2);
-    details.append(toggle, raw);
-    item.append(body, details);
+    item.append(body);
     list.append(item);
   }
 }
@@ -835,6 +838,11 @@ $("new-session").addEventListener("click", () => {
 
 document.querySelector(".examples")?.addEventListener("click", event => {
   if (!(event.target instanceof HTMLButtonElement)) return;
+  if (event.target.dataset.branch === "recorded_rhythm") {
+    $("request-status").textContent = "Hold ‘Hold to speak’, say which drum to use, then beatbox your rhythm. Release to send it to Jev.";
+    $("record").focus();
+    return;
+  }
   $("request").value = event.target.textContent ?? "";
   $("request").focus();
   void player.unlock().catch(() => {});
