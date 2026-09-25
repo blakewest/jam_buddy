@@ -5,6 +5,8 @@ import { selectionContext, withSelectionQuestions, selectionScopeQuestion } from
 import { handleTranscription } from "./transcription.js";
 import { createServer as httpServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
 import kitManifest from "../frontend/assets/virtuosity/manifest.json" with { type: "json" };
 import blackPearlManifest from "../frontend/assets/black-pearl/manifest.json" with { type: "json" };
 import { TIMING_QUESTION } from "../ai/timing-question.js";
@@ -27,9 +29,11 @@ import type { Preset } from "../core/pattern/presets.js";
 import { REQUEST_QUESTIONS, validRequestState, isRequestQuestion } from "../ai/request-questions.js";
 type Payload = { state: PatternJevState; instruments: Instrument[]; request: string; candidate_ids: string[]; node_id: keyof typeof REQUEST_QUESTIONS };
 type JevResponse = { model: string; answers: Answers; usage?: Record<string, number> };
-const staticFile = (path: string, contentType: string): [URL, string] => [new URL(path, import.meta.url), contentType];
+const fileBase = process.env.VERCEL === "1" ? pathToFileURL(resolve("dist/src/services/http-server.js")) : import.meta.url;
+const staticFile = (path: string, contentType: string): [URL, string] => [new URL(path, fileBase), contentType];
 const PUBLIC_FILES = new Map<string, [URL, string]>([
-  ["/", staticFile("../frontend/timing/index.html", "text/html")],
+  ["/", staticFile("../frontend/pattern/index.html", "text/html")],
+  ["/timing.html", staticFile("../frontend/timing/index.html", "text/html")],
   ["/style.css", staticFile("../frontend/timing/style.css", "text/css")],
   ["/app.js", staticFile("../frontend/timing/app.js", "text/javascript")],
   ["/timing-audio.js", staticFile("../frontend/timing/audio.js", "text/javascript")],
@@ -135,12 +139,15 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
   if (!res.destroyed) res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers }).end(JSON.stringify(body));
 }
 
-export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl = fetch, openRouterKey = process.env.OPENROUTER_API_KEY } = {}) {
+export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl = fetch, openRouterKey = process.env.OPENROUTER_API_KEY, deployed = process.env.VERCEL === "1" } = {}) {
   return httpServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; frame-ancestors 'none'");
     const host = req.headers.host;
-    if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host ?? "")) return json(res, 403, { error: "Local access only." });
+    const localHost = /^(127\.0\.0\.1|localhost):\d+$/.test(host ?? "");
+    if (!deployed && !localHost) return json(res, 403, { error: "Local access only." });
+    if (!/^[a-z0-9.-]+(?::\d+)?$/i.test(host ?? "")) return json(res, 400, { error: "Invalid host." });
+    const origin = `${deployed && !localHost ? "https" : "http"}://${host}`;
     const path = new URL(req.url ?? "/", `http://${host}`).pathname;
     if (req.method === "GET" && MODULE_ALIASES[path]) {
       res.writeHead(302, { Location: MODULE_ALIASES[path], "Cache-Control": "no-store" }).end();
@@ -151,7 +158,7 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       || KIT_SAMPLE_PATHS.has(path);
     if (req.method === "GET" && samplePath) {
       try {
-        const content = await readFile(new URL(`../frontend${path}`, import.meta.url));
+        const content = await readFile(new URL(`../frontend${path}`, fileBase));
         const headers = { "Content-Type": "audio/wav", "Cache-Control": "public, max-age=86400", "Accept-Ranges": "bytes" };
         const range = req.headers.range;
         if (range) {
@@ -181,12 +188,12 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
       return;
     }
     if (path === "/api/transcribe" && req.method === "POST") {
-      if ((req.headers.origin && req.headers.origin !== `http://${host}`) || req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Foreign origin rejected." });
+      if ((req.headers.origin && req.headers.origin !== origin) || req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Foreign origin rejected." });
       await handleTranscription(req, res, openRouterKey, fetchImpl);
       return;
     }
     if (!["/api/recording-decision", "/api/rhythm-fill", "/api/request-decision", "/api/decision", "/api/pattern-decision", "/api/pattern-plan", "/api/pattern-edit-intent", "/api/pattern-route", "/api/preset-search", "/api/preset-select"].includes(path) || req.method !== "POST") return json(res, 404, { error: "Not found." });
-    if (req.headers.origin && req.headers.origin !== `http://${host}`) return json(res, 403, { error: "Foreign origin rejected." });
+    if (req.headers.origin && req.headers.origin !== origin) return json(res, 403, { error: "Foreign origin rejected." });
     if (req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Cross-site request rejected." });
     if (req.headers["content-type"]?.split(";")[0].trim() !== "application/json") return json(res, 415, { error: "JSON required." });
     if (Number(req.headers["content-length"]) > 100000) return json(res, 413, { error: "Request too large." });

@@ -13,8 +13,8 @@ npm start
 
 Open either page in Chrome:
 
-- http://127.0.0.1:3210/ — real-time MIDI fixture and start/stop timing test.
-- http://127.0.0.1:3210/pattern.html — stateful one-to-eight-bar drum pattern builder.
+- http://127.0.0.1:3210/ — stateful one-to-eight-bar drum pattern builder (also available at `/pattern.html`).
+- http://127.0.0.1:3210/timing.html — real-time MIDI fixture and start/stop timing test.
 - http://127.0.0.1:3210/presets.html — audition 50 original source-audio clips and mark favorites locally.
 
 Copy `.env.example` to `.env`, add `TYPESAFE_API_KEY`, then start the server. The key never reaches the browser. TypeScript and Node type definitions are development dependencies; there are no runtime npm dependencies.
@@ -191,3 +191,7 @@ not yet been measured; synthetic tests do not establish those results.
 ### Live rhythm interpretation check
 
 With the QA server running, run `QA_URL=http://127.0.0.1:3210 node dist/scripts/check-rhythm-fill.js` after building. This makes live TypeSafe calls to check hats, subdivisions, and references to recent edits.
+
+## Vercel
+
+The checked-in configuration builds the TypeScript app and includes its compiled browser modules and samples. Set `TYPESAFE_API_KEY` and `OPENROUTER_API_KEY` (for voice transcription) in Vercel. The home page is the pattern builder; the timing lab is at `/timing.html`. Existing `/pattern.html` links still work.

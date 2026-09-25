@@ -1,14 +1,8 @@
 .env
+.env.*
 .agents/
-.DS_Store
 .superpowers/
 docs/superpowers/
 recordings/
-skills-lock.json
 .worktrees/
-node_modules/
 dist/
-
-.env.*
-!.env.example
-.vercel/

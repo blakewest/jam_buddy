@@ -79,3 +79,15 @@ test("invalid answer cannot reach the client as an action", async () => {
     assert.equal((await post(url)).status, 502);
   }, { fetchImpl: async () => Response.json({ answers: { action: { choice: "unknown" } } }) });
 });
+
+test("pattern builder is home and timing lab has its own URL", async () => {
+  await withServer(async url => {
+    const home = await fetch(url).then(response => response.text());
+    const pattern = await fetch(`${url}/pattern.html`).then(response => response.text());
+    const timing = await fetch(`${url}/timing.html`).then(response => response.text());
+    assert.equal(home, pattern);
+    assert.match(home, /href="\/timing.html"/);
+    assert.match(timing, /Can the drummer keep up\?/);
+    assert.match(timing, /href="\/">Pattern builder/);
+  });
+});
