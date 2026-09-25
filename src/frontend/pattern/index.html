@@ -17,7 +17,7 @@
   <main>
     <header>
       <span class="wordmark">JAM PARTNER</span>
-      <nav class="header-links" aria-label="Site"><a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav>
+      <nav class="header-links" aria-label="Site"><details class="microphone-settings"><summary aria-label="Microphone settings" title="Microphone settings">⚙</summary><div class="microphone-row"><select id="microphone" aria-label="Microphone input"><option value="">System default</option></select><button id="microphone-enable" type="button">Choose microphone</button></div></details><a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav>
     </header>
     <section class="prompt" aria-labelledby="prompt-heading">
       <h1 id="prompt-heading">What kind of a beat do you want to make?</h1>
@@ -28,9 +28,9 @@
             <textarea id="request" maxlength="500" rows="2" placeholder="A laid-back hip-hop beat, a funky groove…" required aria-describedby="request-status"></textarea>
             <div class="composer-actions">
               <button id="record" type="button" aria-label="Hold to speak" title="Hold to speak or beatbox" aria-pressed="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button>
-              <button id="send" class="primary" type="submit" aria-label="Tell Jev" aria-keyshortcuts="Meta+Enter" title="Tell Jev (⌘ Enter)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
             </div>
           </div>
+          <button id="send" class="primary submit-button" type="submit" aria-keyshortcuts="Meta+Enter" title="Submit (⌘ Enter)">Submit</button>
           <button id="demo-play" class="demo-start" type="button" disabled>▶ Play the demo</button>
         </div>
         <p id="request-status" class="request-status" role="status">Type your idea, or hold the mic to speak.</p>
@@ -41,7 +41,6 @@
         <button type="button">Load a laid-back hip-hop beat</button>
         <button type="button">Give me a funky beat</button>
       </div>
-      <details class="microphone-settings"><summary>Microphone settings</summary><div class="microphone-row"><select id="microphone" aria-label="Microphone input"><option value="">System default</option></select><button id="microphone-enable" type="button">Choose microphone</button></div></details>
       <span id="pending" class="pending" hidden>Applies next beat</span>
     </section>
     <div id="beat-workspace" hidden>
