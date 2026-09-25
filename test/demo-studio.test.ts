@@ -11,6 +11,7 @@ function harness(t: test.TestContext, authoring = true) {
   let audio: FakeAudio;
   let frame: () => void;
   let disconnected = 0, stoppedTracks = 0, restored = 0;
+  const completions: boolean[] = [];
   let rejectPlay = false;
   let silenceStarted = 0, silenceStopped = 0;
   const frames: DemoView[] = [], hits: string[] = [];
@@ -45,10 +46,10 @@ function harness(t: test.TestContext, authoring = true) {
         start() { silenceStarted++; }, stop() { silenceStopped++; }, disconnect() {} }),
     }) as unknown as AudioContext,
     connectOutput: node => { assert.equal(node, destination); return () => { disconnected++; }; },
-    view, onChange() {}, onReplayView: value => frames.push(value), onReplayHit: value => hits.push(value), onReplayEnd: () => { restored++; },
+    view, onChange() {}, onReplayView: value => frames.push(value), onReplayHit: value => hits.push(value), onReplayEnd: completed => { restored++; completions.push(completed); },
   });
   t.after(() => { studio.stopReplay(); Object.assign(globalThis, original); });
-  return { studio, frames, hits, destination, disconnected: () => disconnected, stoppedTracks: () => stoppedTracks, restored: () => restored,
+  return { studio, frames, hits, completions, destination, disconnected: () => disconnected, stoppedTracks: () => stoppedTracks, restored: () => restored,
     silenceStarted: () => silenceStarted, silenceStopped: () => silenceStopped,
     advance(time: number) { audio.currentTime = time; frame(); }, ended() { audio.onended?.(); }, rejectPlay() { rejectPlay = true; } };
 }
@@ -106,6 +107,7 @@ test("saved replay makes no network calls, follows the audio clock, and restores
   await h.studio.play(); h.advance(.7); h.studio.stopReplay();
   assert.deepEqual(h.hits, ["snare", "snare"]);
   assert.equal(h.restored(), 2);
+  assert.deepEqual(h.completions, [true, false]);
 });
 
 test("rejected audio playback releases replay mode and restores the working view", async t => {
@@ -117,6 +119,7 @@ test("rejected audio playback releases replay mode and restores the working view
   assert.equal(h.studio.isBusy(), false);
   assert.equal(h.restored(), 1);
   assert.match(h.studio.message(), /Playback blocked/);
+  assert.deepEqual(h.completions, [false]);
 });
 
 test("replay previews queued notes before the recorded audio switch", async t => {

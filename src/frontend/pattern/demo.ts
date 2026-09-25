@@ -31,7 +31,7 @@ export function createDemoStudio(options: {
   onChange: () => void;
   onReplayView: (view: DemoView) => void;
   onReplayHit: (instrument: Instrument) => void;
-  onReplayEnd: () => void;
+  onReplayEnd: (completed: boolean) => void;
 }) {
   let saved: DemoRecording | undefined;
   let journal: DemoJournal | undefined;
@@ -162,14 +162,14 @@ export function createDemoStudio(options: {
     })();
     return finishing;
   }
-  function stopReplay() {
+  function stopReplay(completed = false) {
     if (!replaying) return;
     replayVersion++;
     cancelAnimationFrame(animation);
     if (audio) { audio.onended = null; audio.onerror = null; audio.pause(); audio.removeAttribute("src"); audio.load(); }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     audio = undefined; audioUrl = undefined; replaying = false; busy = false; caption = "";
-    options.onReplayEnd(); changed();
+    options.onReplayEnd(completed); changed();
   }
   async function play() {
     if (!saved || journal || busy || replaying) return;
@@ -181,7 +181,7 @@ export function createDemoStudio(options: {
       audioUrl = URL.createObjectURL(blob);
       const playback = new Audio(audioUrl);
       audio = playback;
-      playback.onended = () => { message = "Demo finished. Your working beat is ready."; stopReplay(); };
+      playback.onended = () => { message = "Demo finished. Your working beat is ready."; stopReplay(true); };
       playback.onerror = () => { message = "This browser could not play the saved audio. Try the browser that recorded it."; stopReplay(); };
       let lastView: DemoView | undefined;
       let lastProgress = -Infinity;

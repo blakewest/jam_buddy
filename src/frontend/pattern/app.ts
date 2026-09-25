@@ -40,7 +40,6 @@ interface Elements {
   "demo-file": HTMLInputElement;
   "demo-status": HTMLElement;
   "demo-time": HTMLElement;
-  "demo-caption": HTMLElement;
   "selection-summary": HTMLElement;
   "clear-selection": HTMLButtonElement;
   "tempo": HTMLInputElement;
@@ -85,6 +84,26 @@ const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_ha
 let demo: ReturnType<typeof createDemoStudio> | undefined;
 let replayView: DemoView | null = null;
 let replayRestore: { request: string; selection: BeatSelection | null; volume: string } | null = null;
+let demoTypingFrame = 0;
+let demoTypingText = "";
+const defaultRequestPlaceholder = $("request").placeholder;
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function typeDemoText(text: string) {
+  if (text === demoTypingText) return;
+  cancelAnimationFrame(demoTypingFrame);
+  demoTypingText = text;
+  const startedAt = performance.now();
+  const letters = Array.from(text);
+  const durationMs = Math.min(900, letters.length * 18);
+  const tick = () => {
+    const progress = reducedMotion.matches || !durationMs ? 1 : Math.min(1, (performance.now() - startedAt) / durationMs);
+    $("request").value = letters.slice(0, Math.ceil(letters.length * progress)).join("");
+    $("request").scrollTop = $("request").scrollHeight;
+    if (progress < 1) demoTypingFrame = requestAnimationFrame(tick);
+  };
+  tick();
+}
 let state = createPatternState();
 let pendingState: PatternState | null = null;
 let pendingBoundary: "beat" | "phrase" = "beat";
@@ -403,8 +422,7 @@ function updateDemoControls() {
   $("demo-play").title = demo.message();
   const seconds = Math.floor((recording || replaying ? demo.elapsed() : demo.duration()) / 1000);
   $("demo-time").textContent = recording || replaying || demo.hasSaved() ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "";
-  $("demo-caption").textContent = demo.caption();
-  $("demo-caption").hidden = !demo.caption();
+  if (replaying && demo.caption()) typeDemoText(demo.caption());
 }
 
 function updateControls() {
@@ -436,7 +454,8 @@ function updateControls() {
   $("kit-status").textContent = currentPending && currentPending.pattern.kit_id !== currentState.pattern.kit_id ? `${currentKit} → ${getKit(currentPending.pattern.kit_id).name} next beat` : currentKit;
   $("kit-status").classList.toggle("is-active", !!currentPending && currentPending.pattern.kit_id !== currentState.pattern.kit_id);
   $("send").disabled = locked;
-  $("request").disabled = locked;
+  $("request").disabled = locked && !demo?.isReplaying();
+  $("request").readOnly = !!demo?.isReplaying();
   $("clear").disabled = locked || displayedState().pattern.notes.length === 0;
   $("pending").hidden = !pending;
   $("pending").textContent = `Applies next ${pendingBoundary}`;
@@ -837,32 +856,38 @@ demo = createDemoStudio({
   onChange: updateControls,
   onReplayHit: animateHit,
   onReplayView: view => {
+    if (view.request && view.request !== replayView?.request) typeDemoText(view.request);
     replayView = view;
-    $("request").value = view.request;
     $("request-status").textContent = view.request_status;
     $("playback-status").textContent = view.playback_status;
     $("volume").value = String(view.volume);
     gridSelection.set(view.selection);
     render();
   },
-  onReplayEnd: () => {
+  onReplayEnd: completed => {
+    cancelAnimationFrame(demoTypingFrame);
+    demoTypingText = "";
     replayView = null;
     for (const timer of hitTimers.values()) window.clearTimeout(timer);
     hitTimers.clear();
     $("jev").className = "jev-kit";
     $("request").value = replayRestore?.request ?? "";
+    $("request").placeholder = completed ? "And now your turn! Keep building!" : defaultRequestPlaceholder;
     gridSelection.set(replayRestore?.selection ?? null);
     if (replayRestore) $("volume").value = replayRestore.volume;
     replayRestore = null;
     $("playback-status").textContent = "Stopped";
-    $("request-status").textContent = "Demo stopped. Your working beat is unchanged.";
+    $("request-status").textContent = completed ? "Demo finished. Your turn to build a beat." : "Demo stopped. Your working beat is unchanged.";
     render();
   },
 });
 $("demo-record").addEventListener("click", () => { if (demo?.isRecording()) void demo.finish(); else void demo?.start(); });
 $("demo-play").addEventListener("click", () => {
+  $("demo-play").classList.remove("demo-invite");
   if (demo?.isReplaying()) { demo.stopReplay(); return; }
   replayRestore = { request: $("request").value, selection: gridSelection.snapshot(), volume: $("volume").value };
+  $("request").value = "";
+  $("request").placeholder = "Listen to the demo…";
   cancelWork();
   void demo?.play();
 });
@@ -885,4 +910,6 @@ render();
 
 void refreshMicrophones();
 
-void demo.restore();
+void demo.restore().then(() => {
+  if (demo?.hasSaved() && !demo.isReplaying()) $("demo-play").classList.add("demo-invite");
+});
