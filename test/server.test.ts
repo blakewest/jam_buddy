@@ -11,6 +11,29 @@ async function withServer(run: (url: string) => Promise<void>, options: Paramete
 }
 const post = (url: string, payload: unknown = { state }, extra = {}) => fetch(`${url}/api/decision`, { method: "POST", headers: { "Content-Type": "application/json", Origin: url, ...extra }, body: JSON.stringify(payload) });
 
+test("demo authoring is opt-in and the featured recording is served", async () => {
+  for (const authoring of [false, true]) {
+    await withServer(async url => {
+      assert.deepEqual(await (await fetch(`${url}/api/demo-config`)).json(), { authoring });
+      if (!authoring) {
+        const response = await fetch(`${url}/assets/demo/featured.json`);
+        assert.equal(response.status, 200);
+        const { parseDemo } = await import("../src/core/demo/recording.js");
+        const demo = parseDemo(await response.text());
+        assert.equal(demo.takes.length, 18);
+        assert.equal(demo.calls.length, 0);
+        assert.ok(demo.frames.length > 1);
+      }
+    }, { demoAuthoring: authoring });
+  }
+});
+
+test("deployed servers never enable demo authoring even with the local flag", async () => {
+  await withServer(async url => {
+    assert.deepEqual(await (await fetch(`${url}/api/demo-config`)).json(), { authoring: false });
+  }, { demoAuthoring: true, deployed: true });
+});
+
 test("proxy sends only minimal state and fixed question; returns structured answer", async () => {
   await withServer(async (url: string) => {
     const response = await post(url);

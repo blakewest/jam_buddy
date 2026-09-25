@@ -36,7 +36,7 @@
       <span id="jev-caption" class="jev-caption">JEV IS READY</span>
     </section>
     </div>
-    <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button></div>
+    <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button><div class="session-shortcuts" aria-label="Session controls"><button id="new-session" type="button">＋ New session</button><button id="demo-play" type="button" disabled>▶ Play demo</button></div></div>
     <section class="prompt" aria-labelledby="prompt-heading">
       <div class="section-heading"><h2 id="prompt-heading" class="sr-only">Tell Jev</h2><span id="pending" class="pending" hidden>Applies next beat</span></div>
       <form id="request-form">
@@ -59,13 +59,12 @@
       <button id="record-cancel" class="record-cancel" type="button" hidden>Cancel recording</button>
       <div class="examples" aria-label="Example prompts"><button type="button">Give me a simple backbeat</button><button type="button">Load a laid-back hip-hop beat</button><button type="button">Add quiet eighth-note hats</button><button type="button">Add a little swing</button><button type="button">Swing it harder</button><button type="button">Make the snare louder</button></div>
       <div class="request-status"><span id="request-status" role="status">Ready when you are.</span></div>
+      <p id="demo-caption" class="demo-caption" hidden></p>
     </section>
     <div class="session-footer">
-      <button id="new-session" type="button">＋ New session</button>
-      <section class="demo-studio" aria-label="Demo recording">
-        <div class="demo-toolbar"><span class="demo-label">Your demo</span><button id="demo-record" type="button">● Record demo</button><button id="demo-play" type="button" disabled>▶ Play demo</button><button id="demo-download" type="button" disabled>Download</button><button id="demo-load" type="button">Load demo</button><input id="demo-file" type="file" accept=".json,application/json" hidden><span id="demo-time" class="count"></span></div>
-        <p id="demo-status" role="status">Record your commands and beat, then replay the saved performance.</p>
-        <p id="demo-caption" class="demo-caption" hidden></p>
+      <section id="demo-studio" class="demo-studio" aria-label="Local demo tools" hidden>
+        <div class="demo-toolbar"><span class="demo-label">Local demo tools</span><button id="demo-record" type="button" hidden>● Record demo</button><button id="demo-download" type="button" hidden disabled>Download</button><button id="demo-load" type="button" hidden>Load demo</button><input id="demo-file" type="file" accept=".json,application/json" hidden><span id="demo-time" class="count"></span></div>
+        <p id="demo-status" role="status">Loading the featured demo…</p>
       </section>
       <details class="session-details" open>
         <summary id="history-heading">Session activity</summary>

@@ -32,6 +32,7 @@ interface SavedSession { state: PatternState; logs: RequestLog[]; tempo_bpm?: nu
 type Decide = <T>(url: string, payload: unknown) => Promise<T>;
 
 interface Elements {
+  "demo-studio": HTMLElement;
   "demo-record": HTMLButtonElement;
   "demo-play": HTMLButtonElement;
   "demo-download": HTMLButtonElement;
@@ -128,7 +129,7 @@ $("microphone-enable").addEventListener("click", async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach(track => track.stop());
     await refreshMicrophones();
-    $("request-status").textContent = "Choose your microphone, then hold to speak.";
+    $("request-status").textContent = "";
   } catch { $("request-status").textContent = "Allow microphone access in your browser to choose an input."; }
   finally { microphoneSetup = false; updateControls(); }
 });
@@ -399,6 +400,7 @@ function updateDemoControls() {
   $("demo-download").disabled = recording || replaying || demo.isBusy() || !demo.hasSaved();
   $("demo-load").disabled = liveBusy || recording || replaying || demo.isBusy();
   $("demo-status").textContent = demo.message();
+  $("demo-play").title = demo.message();
   const seconds = Math.floor((recording || replaying ? demo.elapsed() : demo.duration()) / 1000);
   $("demo-time").textContent = recording || replaying || demo.hasSaved() ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "";
   $("demo-caption").textContent = demo.caption();
@@ -820,7 +822,15 @@ document.querySelector(".examples")?.addEventListener("click", event => {
 
 window.addEventListener("pagehide", cancelWork);
 
+let demoAuthoring = false;
+try {
+  const response = await fetch("/api/demo-config");
+  if (response.ok) demoAuthoring = (await response.json()).authoring === true;
+} catch { /* The public demo remains available without authoring configuration. */ }
+$("demo-studio").hidden = !demoAuthoring;
+for (const id of ["demo-record", "demo-download", "demo-load"] as const) $(id).hidden = !demoAuthoring;
 demo = createDemoStudio({
+  authoring: demoAuthoring,
   context: () => player.captureContext(),
   connectOutput: destination => player.connectRecording(destination),
   view: demoSnapshot,

@@ -40,6 +40,7 @@ const PUBLIC_FILES = new Map<string, [URL, string]>([
   ["/core/timing/session.js", staticFile("../core/timing/session.js", "text/javascript")],
   ["/core/timing/runner.js", staticFile("../core/timing/runner.js", "text/javascript")],
   ["/pattern.html", staticFile("../frontend/pattern/index.html", "text/html")],
+  ["/assets/demo/featured.json", staticFile("../frontend/assets/demo/featured.json", "application/json")],
   ["/pattern.css", staticFile("../frontend/pattern/styles.css", "text/css")],
   ["/pattern-app.js", staticFile("../frontend/pattern/app.js", "text/javascript")],
   ["/pattern-audio.js", staticFile("../frontend/pattern/audio.js", "text/javascript")],
@@ -139,7 +140,7 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
   if (!res.destroyed) res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers }).end(JSON.stringify(body));
 }
 
-export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl = fetch, openRouterKey = process.env.OPENROUTER_API_KEY, deployed = process.env.VERCEL === "1" } = {}) {
+export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl = fetch, openRouterKey = process.env.OPENROUTER_API_KEY, deployed = process.env.VERCEL === "1", demoAuthoring = process.env.DEMO_AUTHORING === "1" } = {}) {
   return httpServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; frame-ancestors 'none'");
@@ -149,6 +150,10 @@ export function createServer({ apiKey = process.env.TYPESAFE_API_KEY, fetchImpl 
     if (!/^[a-z0-9.-]+(?::\d+)?$/i.test(host ?? "")) return json(res, 400, { error: "Invalid host." });
     const origin = `${deployed && !localHost ? "https" : "http"}://${host}`;
     const path = new URL(req.url ?? "/", `http://${host}`).pathname;
+    if (req.method === "GET" && path === "/api/demo-config") {
+      const loopback = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
+      return json(res, 200, { authoring: demoAuthoring && !deployed && localHost && loopback });
+    }
     if (req.method === "GET" && MODULE_ALIASES[path]) {
       res.writeHead(302, { Location: MODULE_ALIASES[path], "Cache-Control": "no-store" }).end();
       return;

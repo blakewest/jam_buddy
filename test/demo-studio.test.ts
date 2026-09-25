@@ -6,7 +6,7 @@ import type { DemoView } from "../src/core/demo/recording.js";
 import { createPatternState } from "../src/core/pattern/state.js";
 
 const view = (): DemoView => ({ state: createPatternState(), pending_state: null, selection: null, activity: [], request: "", request_status: "Ready", playback_status: "Stopped", playing: false, volume: .8, capturing: false });
-function harness(t: test.TestContext) {
+function harness(t: test.TestContext, authoring = true) {
   let recorder: FakeRecorder;
   let audio: FakeAudio;
   let frame: () => void;
@@ -39,6 +39,7 @@ function harness(t: test.TestContext) {
   globalThis.fetch = async () => { throw new Error("Replay must not call the network"); };
   const destination = { stream: { getTracks: () => [{ stop() { stoppedTracks++; } }] } };
   const studio = createDemoStudio({
+    authoring,
     context: async () => ({ createMediaStreamDestination: () => destination,
       createConstantSource: () => ({ offset: { value: 1 }, connect(node: unknown) { assert.equal(node, destination); assert.equal(this.offset.value, 0); },
         start() { silenceStarted++; }, stop() { silenceStopped++; }, disconnect() {} }),
@@ -67,6 +68,23 @@ test("demo recording captures the mix, finalizes audio and releases its private 
   assert.equal(h.disconnected(), 1);
   assert.equal(h.stoppedTracks(), 1);
   assert.equal(h.silenceStopped(), 1);
+});
+
+test("public demo mode loads the bundled performance and cannot record or import", async t => {
+  const h = harness(t, false);
+  const file = new DemoJournal(view(), 0).finish({ mime_type: "audio/webm", base64: "AQID" }, 1000);
+  globalThis.fetch = async url => {
+    assert.equal(url, "/assets/demo/featured.json");
+    return Response.json(file);
+  };
+  await h.studio.start();
+  assert.equal(h.silenceStarted(), 0);
+  await h.studio.loadFile(new File(["invalid"], "custom.json"));
+  assert.equal(h.studio.hasSaved(), false);
+  await h.studio.restore();
+  assert.equal(h.studio.hasSaved(), true);
+  await h.studio.play();
+  assert.equal(h.studio.isReplaying(), true);
 });
 
 test("saved replay makes no network calls, follows the audio clock, and restores on finish or stop", async t => {

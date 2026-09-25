@@ -39,9 +39,13 @@ The root `server.ts` only starts the HTTP service.
 
 Use wired headphones and keep the tab visible. Hiding the tab ends the run so browser suspension does not contaminate timing results.
 
-## Recording a replayable demo
+## Featured demo and local recording
 
-In the pattern builder, use **Record demo**, build your beat normally with **Hold to speak** or typed commands, then **Finish recording**. Start with **New session** first if you want an empty opening. Leave a few seconds at the end to hear the finished groove.
+**Play demo** loads Blake’s bundled performance from `src/frontend/assets/demo/featured.json`. It is available to every visitor without API keys. Public mode ignores browser-saved recordings and hides recording, import, and download controls. The published copy uses the repaired continuous audio timeline and omits raw API logs and analysis metadata.
+
+To author a demo locally, start the server with `DEMO_AUTHORING=1` (for example `DEMO_AUTHORING=1 PORT=3210 npm start`), or set it in your private `.env`. Leave this flag off in shared deployments. The server only enables authoring for loopback requests. This is a local development tool, not a hosted account or authentication feature.
+
+In authoring mode, use **Record demo**, build your beat normally with **Hold to speak** or typed commands, then **Finish recording**. Start with **New session** first if you want an empty opening. Leave a few seconds at the end to hear the finished groove.
 
 **Play demo** replays the saved voice and drum audio, captions, selected areas, activity, pattern changes, and Jev animation. It makes no transcription or TypeSafe calls and restores your working beat when finished or stopped. Editing is locked during replay. Keep the tab visible; hiding it stops replay.
 

@@ -24,6 +24,7 @@ async function storeDemo(key: "saved" | "draft", value?: DemoRecording): Promise
 const embedded = async (blob: Blob): Promise<EmbeddedAudio> => ({ mime_type: blob.type, base64: bytesToBase64(new Uint8Array(await blob.arrayBuffer())) });
 
 export function createDemoStudio(options: {
+  authoring?: boolean;
   context: () => Promise<AudioContext>;
   connectOutput: (destination: AudioNode) => () => void;
   view: () => DemoView;
@@ -93,7 +94,7 @@ export function createDemoStudio(options: {
     }).catch(storageWarning);
   }
   async function start() {
-    if (journal || busy || replaying) return;
+    if (!options.authoring || journal || busy || replaying) return;
     busy = true; changed();
     try {
       if (typeof MediaRecorder === "undefined") throw new Error("Demo recording is not supported in this browser.");
@@ -203,7 +204,7 @@ export function createDemoStudio(options: {
     }
   }
   async function loadFile(file: File) {
-    if (journal || busy || replaying) return;
+    if (!options.authoring || journal || busy || replaying) return;
     busy = true; changed();
     try {
       if (file.size > MAX_DEMO_BYTES) throw new Error("Demo files must be smaller than 128 MB.");
@@ -214,7 +215,7 @@ export function createDemoStudio(options: {
     finally { busy = false; changed(); }
   }
   function download() {
-    if (!saved) return;
+    if (!options.authoring || !saved) return;
     const blob = new Blob([JSON.stringify(saved)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -224,11 +225,16 @@ export function createDemoStudio(options: {
   async function restore() {
     busy = true; changed();
     try {
-      const [draft, completed] = await Promise.all([storeDemo("draft"), storeDemo("saved")]);
+      const [draft, completed] = options.authoring ? await Promise.all([storeDemo("draft"), storeDemo("saved")]) : [];
       const candidate = draft ?? completed;
       if (candidate) {
         saved = parseDemo(JSON.stringify(candidate));
         message = draft ? "Recovered an unfinished demo from local autosave. Play or download it." : "Saved demo ready to play.";
+      } else {
+        const response = await fetch("/assets/demo/featured.json");
+        if (!response.ok) throw new Error("The featured demo could not be loaded.");
+        saved = parseDemo(await response.text());
+        message = "Play Blake’s demo · Voice, beat, and Jev’s actions";
       }
     } catch (error) { message = error instanceof Error ? `Could not restore demo: ${error.message}` : "Demo storage is unavailable. You can still record and download."; }
     busy = false; changed();
