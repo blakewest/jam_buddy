@@ -85,6 +85,13 @@ function setRequestStatus(message: string, hint = false) {
   $("request-status").classList.toggle("is-hint", hint);
 }
 
+function revealWorkspace() {
+  const workspace = document.getElementById("beat-workspace")!;
+  if (!workspace.hidden) return;
+  workspace.hidden = false;
+  document.body.classList.remove("intro");
+}
+
 const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
 let demo: ReturnType<typeof createDemoStudio> | undefined;
 let replayView: DemoView | null = null;
@@ -421,7 +428,7 @@ function updateDemoControls() {
   $("demo-record").textContent = recording ? "■ Finish recording" : "● Record demo";
   $("demo-record").classList.toggle("is-recording", recording);
   $("demo-record").disabled = liveBusy || replaying || demo.isBusy();
-  $("demo-play").textContent = replaying ? "■ Stop demo" : "▶ Play demo";
+  $("demo-play").textContent = replaying ? "■ Stop demo" : "▶ Play the demo";
   $("demo-play").classList.toggle("is-playing", replaying);
   $("demo-play").disabled = !replaying && (liveBusy || recording || demo.isBusy() || !demo.hasSaved());
   $("demo-download").disabled = recording || replaying || demo.isBusy() || !demo.hasSaved();
@@ -446,7 +453,9 @@ function updateControls() {
   $("new-session").disabled = locked;
   $("clear-selection").disabled = locked;
   $("record").disabled = busy || pending || startingPlayback || microphoneSetup || demoLocked;
-  $("record").textContent = captureStatus === "recording" ? "Recording… release to finish" : captureStatus === "initializing" ? "Preparing microphone…" : "Hold to speak";
+  const recordLabel = captureStatus === "recording" ? "Recording… release to finish" : captureStatus === "initializing" ? "Preparing microphone…" : "Hold to speak or beatbox";
+  $("record").setAttribute("aria-label", recordLabel);
+  $("record").title = recordLabel;
   $("record").setAttribute("aria-pressed", String(captureStatus === "recording"));
   $("record-cancel").hidden = !recording && !recordProcessing;
   $("tempo").disabled = locked;
@@ -517,6 +526,7 @@ async function commitOrStage(nextState: PatternState, autoPlay = true, boundary:
 
 async function performRequest(request: string, run: (decide: Decide) => Promise<CommandResult>, local = false) {
   if (busy || pendingState || startingPlayback || captureStatus !== "idle" || demo?.isReplaying() || demo?.isBusy()) return;
+  revealWorkspace();
   busy = true;
   const version = ++operationVersion;
   requestAbort = new AbortController();
@@ -834,7 +844,10 @@ $("new-session").addEventListener("click", () => {
   pendingState = null;
   logs = [];
   $("playback-status").textContent = "Stopped";
-  setRequestStatus("New empty session ready.");
+  document.getElementById("beat-workspace")!.hidden = true;
+  document.body.classList.add("intro");
+  setRequestStatus("Type your idea, or hold the mic to speak.");
+  focusRequest();
   $("request-meta").textContent = "No API call yet";
 
   render();
@@ -843,14 +856,10 @@ $("new-session").addEventListener("click", () => {
 
 document.querySelector(".examples")?.addEventListener("click", event => {
   if (!(event.target instanceof HTMLButtonElement)) return;
-  if (event.target.dataset.branch === "recorded_rhythm") {
-    setRequestStatus("Hold ‘Hold to speak’, say which drum to use, then beatbox your rhythm. Release to send it to Jev.");
-    $("record").focus();
-    return;
-  }
   $("request").value = event.target.textContent ?? "";
   $("request").focus();
   void player.unlock().catch(() => {});
+  $("request-form").requestSubmit();
 });
 
 window.addEventListener("pagehide", cancelWork);
@@ -914,6 +923,7 @@ $("demo-play").addEventListener("click", () => {
   cancelAnimationFrame(demoTypingFrame);
   demoTypingText = "";
   if (demo?.isReplaying()) { demo.stopReplay(); return; }
+  revealWorkspace();
   replayRestore = { request: $("request").value, selection: gridSelection.snapshot(), volume: $("volume").value };
   $("request").value = "";
   $("request").placeholder = "Listen to the demo…";
@@ -935,6 +945,7 @@ try {
   if (saved?.state) state = createPatternState({ ...saved.state, tempo_bpm: saved.state.tempo_bpm ?? saved.tempo_bpm });
   if (Array.isArray(saved?.logs)) logs = saved.logs.slice(-50);
 } catch { setRequestStatus("Browser storage is unavailable; the demo still works for this tab."); }
+if (state.pattern.notes.length || logs.length) revealWorkspace();
 render();
 
 void refreshMicrophones();

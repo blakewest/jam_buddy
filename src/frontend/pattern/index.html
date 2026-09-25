@@ -13,15 +13,41 @@
   <link rel="icon" href="data:,"><link rel="stylesheet" href="/pattern.css">
   <script type="module" src="/pattern-app.js"></script>
 </head>
-<body>
+<body class="intro">
   <main>
     <header>
       <span class="wordmark">JAM PARTNER</span>
       <nav class="header-links" aria-label="Site"><a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav>
     </header>
+    <section class="prompt" aria-labelledby="prompt-heading">
+      <h1 id="prompt-heading">What kind of a beat do you want to make?</h1>
+      <form id="request-form">
+        <label for="request" class="sr-only">Tell Jev what kind of beat you want</label>
+        <div class="prompt-row">
+          <div class="request-composer">
+            <textarea id="request" maxlength="500" rows="2" placeholder="A laid-back hip-hop beat, a funky groove…" required aria-describedby="request-status"></textarea>
+            <div class="composer-actions">
+              <button id="record" type="button" aria-label="Hold to speak" title="Hold to speak or beatbox" aria-pressed="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button>
+              <button id="send" class="primary" type="submit" aria-label="Tell Jev" aria-keyshortcuts="Meta+Enter" title="Tell Jev (⌘ Enter)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+            </div>
+          </div>
+          <button id="demo-play" class="demo-start" type="button" disabled>▶ Play the demo</button>
+        </div>
+        <p id="request-status" class="request-status" role="status">Type your idea, or hold the mic to speak.</p>
+      </form>
+      <button id="record-cancel" class="record-cancel" type="button" hidden>Cancel recording</button>
+      <div class="examples" aria-label="Try an idea">
+        <button type="button">Give me a simple backbeat</button>
+        <button type="button">Load a laid-back hip-hop beat</button>
+        <button type="button">Give me a funky beat</button>
+      </div>
+      <details class="microphone-settings"><summary>Microphone settings</summary><div class="microphone-row"><select id="microphone" aria-label="Microphone input"><option value="">System default</option></select><button id="microphone-enable" type="button">Choose microphone</button></div></details>
+      <span id="pending" class="pending" hidden>Applies next beat</span>
+    </section>
+    <div id="beat-workspace" hidden>
     <div class="workspace">
     <section class="pattern" aria-labelledby="pattern-heading">
-      <div class="section-heading"><h1 id="pattern-heading">Make a beat with Jev.</h1><span id="note-count" class="count">0 notes</span></div>
+      <div class="section-heading"><h2 id="pattern-heading">Your beat</h2><span id="note-count" class="count">0 notes</span></div>
       <section class="transport" aria-label="Pattern playback">
       <div class="transport-buttons"><button id="play" class="primary">▶ Play loop</button><button id="stop" disabled>■ Stop</button></div>
       <div class="transport-meta"><label>Tempo <input id="tempo" type="number" min="40" max="240" step="1" value="120"> BPM</label><span id="phrase-bars">1 bar</span><span id="phrase-steps">4/4</span><span id="swing-status" role="status">Swing off</span></div>
@@ -42,46 +68,7 @@
       <span id="jev-caption" class="jev-caption">JEV IS READY</span>
     </section>
     </div>
-    <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button><div class="session-shortcuts" aria-label="Session controls"><button id="new-session" type="button">＋ New session</button><button id="demo-play" type="button" disabled>▶ Play demo</button></div></div>
-    <section class="prompt" aria-labelledby="prompt-heading">
-      <div class="section-heading"><h2 id="prompt-heading" class="sr-only">Tell Jev</h2><span id="pending" class="pending" hidden>Applies next beat</span></div>
-      <form id="request-form">
-        <label for="request" class="sr-only">Request</label>
-        <div class="prompt-row">
-          <div class="request-input">
-            <textarea id="request" maxlength="500" rows="1" placeholder="Describe your next beat…" required></textarea>
-            <p id="request-status" class="request-status" role="status">Ready when you are.</p>
-          </div>
-          <div class="prompt-actions">
-            <button id="send" class="primary" type="submit" aria-keyshortcuts="Meta+Enter" title="Tell Jev (⌘ Enter)">Tell Jev</button>
-            <button id="record" type="button" aria-pressed="false">Hold to speak</button>
-            <div class="microphone-row">
-              <div class="microphone-control">
-                <svg class="microphone-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>
-                <select id="microphone" aria-label="Microphone input"><option value="">System default</option></select>
-              </div>
-              <button id="microphone-enable" type="button">Choose microphone</button>
-            </div>
-          </div>
-        </div>
-      </form>
-      <button id="record-cancel" class="record-cancel" type="button" hidden>Cancel recording</button>
-      <p class="examples-label" id="examples-label">Try telling Jev things like…</p>
-      <div class="examples" aria-labelledby="examples-label">
-        <button type="button" data-branch="load_preset">Give me a simple backbeat</button>
-        <button type="button" data-branch="shuffle_preset">Try a different beat</button>
-        <button type="button" data-branch="edit_pattern">Make the snare louder</button>
-        <button type="button" data-branch="fill_rhythm">Add quiet eighth-note hats</button>
-        <button type="button" data-branch="change_swing">Add a little swing</button>
-        <button type="button" data-branch="change_tempo">Set the tempo to 100 BPM</button>
-        <button type="button" data-branch="change_kit">Switch to the 808 kit</button>
-        <button type="button" data-branch="duplicate">Double the whole groove</button>
-        <button type="button" data-branch="clear_selection">Clear the selected section</button>
-        <button type="button" data-branch="clear_pattern">Clear the whole beat</button>
-        <button type="button" data-branch="undo">Undo the last change</button>
-        <button type="button" data-branch="recorded_rhythm">Use my beatbox rhythm</button>
-      </div>
-    </section>
+    <div class="selection-summary"><span id="selection-summary" role="status">Drag across the grid to select a section</span><button id="clear-selection" type="button" hidden>Clear selection</button><div class="session-shortcuts" aria-label="Session controls"><button id="new-session" type="button">＋ New session</button></div></div>
     <div class="session-footer">
       <section id="demo-studio" class="demo-studio" aria-label="Local demo tools" hidden>
         <div class="demo-toolbar"><span class="demo-label">Local demo tools</span><button id="demo-record" type="button" hidden>● Record demo</button><button id="demo-download" type="button" hidden disabled>Download</button><button id="demo-load" type="button" hidden>Load demo</button><input id="demo-file" type="file" accept=".json,application/json" hidden><span id="demo-time" class="count"></span></div>
@@ -93,6 +80,7 @@
       </details>
     </div>
     <span id="request-meta" class="sr-only">No API call yet</span>
+    </div>
     <footer>
       <p>My name is <a href="https://www.linkedin.com/in/blakewest87/" target="_blank" rel="noopener noreferrer">Blake West</a>. This is a simple, fun personal project to demo using <a href="https://typesafe.ai" target="_blank" rel="noopener noreferrer">Jev</a>. When you’re creating, you want to stay in the flow, so this seemed like a fun use case for Jev’s incredible speed and low cost.</p>
       <p>Feel free to contribute or tell me your ideas! The GitHub project is <a href="https://github.com/blakewest/jam_buddy" target="_blank" rel="noopener noreferrer">here</a>.</p>
