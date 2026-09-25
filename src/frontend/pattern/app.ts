@@ -27,7 +27,7 @@ import { runPatternTree } from "../../core/pattern/request-runner.js";
 import { swungTick } from "../../core/pattern/swing.js";
 import { ticksPerBar } from "../../core/pattern/musical-time.js";
 
-type RequestLog = Partial<CommandResult> & { request: string; local?: boolean; beat_ticks?: number };
+type RequestLog = Partial<CommandResult> & { request: string; local?: boolean; beat_ticks?: number; demo_activity?: DemoView["activity"][number] };
 interface SavedSession { state: PatternState; logs: RequestLog[]; tempo_bpm?: number }
 type Decide = <T>(url: string, payload: unknown) => Promise<T>;
 
@@ -395,7 +395,7 @@ function describeChange(change: CommandResult["result"]["applied_changes"][numbe
 }
 
 function activitySnapshot() {
-  return logs.map(log => ({ request: log.request, steps: activitySteps(log), actions: activityActions(log), details: log }));
+  return logs.map(log => log.demo_activity ?? ({ request: log.request, steps: activitySteps(log), actions: activityActions(log), details: log }));
 }
 
 function demoSnapshot(): DemoView {
@@ -864,17 +864,25 @@ demo = createDemoStudio({
     gridSelection.set(view.selection);
     render();
   },
-  onReplayEnd: completed => {
+  onReplayEnd: (completed, finalView) => {
     cancelAnimationFrame(demoTypingFrame);
     demoTypingText = "";
+    if (completed && finalView) {
+      state = createPatternState(finalView.pending_state ?? finalView.state);
+      pendingState = null;
+      logs = finalView.activity.slice(-50).map(row => ({ request: row.request, demo_activity: row }));
+      $("volume").value = String(finalView.volume);
+      player.setVolume(finalView.volume);
+      void persist();
+    }
     replayView = null;
     for (const timer of hitTimers.values()) window.clearTimeout(timer);
     hitTimers.clear();
     $("jev").className = "jev-kit";
-    $("request").value = replayRestore?.request ?? "";
+    $("request").value = completed ? "" : replayRestore?.request ?? "";
     $("request").placeholder = completed ? "And now your turn! Keep building!" : defaultRequestPlaceholder;
-    gridSelection.set(replayRestore?.selection ?? null);
-    if (replayRestore) $("volume").value = replayRestore.volume;
+    gridSelection.set(completed ? null : replayRestore?.selection ?? null);
+    if (!completed && replayRestore) $("volume").value = replayRestore.volume;
     replayRestore = null;
     $("playback-status").textContent = "Stopped";
     $("request-status").textContent = completed ? "Demo finished. Your turn to build a beat." : "Demo stopped. Your working beat is unchanged.";

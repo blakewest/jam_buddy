@@ -12,6 +12,7 @@ function harness(t: test.TestContext, authoring = true) {
   let frame: () => void;
   let disconnected = 0, stoppedTracks = 0, restored = 0;
   const completions: boolean[] = [];
+  const finalViews: (DemoView | undefined)[] = [];
   let rejectPlay = false;
   let silenceStarted = 0, silenceStopped = 0;
   const frames: DemoView[] = [], hits: string[] = [];
@@ -46,10 +47,10 @@ function harness(t: test.TestContext, authoring = true) {
         start() { silenceStarted++; }, stop() { silenceStopped++; }, disconnect() {} }),
     }) as unknown as AudioContext,
     connectOutput: node => { assert.equal(node, destination); return () => { disconnected++; }; },
-    view, onChange() {}, onReplayView: value => frames.push(value), onReplayHit: value => hits.push(value), onReplayEnd: completed => { restored++; completions.push(completed); },
+    view, onChange() {}, onReplayView: value => frames.push(value), onReplayHit: value => hits.push(value), onReplayEnd: (completed, finalView) => { restored++; completions.push(completed); finalViews.push(finalView); },
   });
   t.after(() => { studio.stopReplay(); Object.assign(globalThis, original); });
-  return { studio, frames, hits, completions, destination, disconnected: () => disconnected, stoppedTracks: () => stoppedTracks, restored: () => restored,
+  return { studio, frames, hits, completions, finalViews, destination, disconnected: () => disconnected, stoppedTracks: () => stoppedTracks, restored: () => restored,
     silenceStarted: () => silenceStarted, silenceStopped: () => silenceStopped,
     advance(time: number) { audio.currentTime = time; frame(); }, ended() { audio.onended?.(); }, rejectPlay() { rejectPlay = true; } };
 }
@@ -152,4 +153,25 @@ test("replay previews queued notes before the recorded audio switch", async t =>
   assert.equal(h.frames.at(-1)?.state.pattern.notes.length, 1);
   assert.equal(h.frames.at(-1)?.pending_state, null);
   assert.equal(file.frames[1].view.pending_state?.pattern.notes.length, 1);
+});
+
+test("completion hands off the final editable beat even if the last animation frame was skipped", async t => {
+  const h = harness(t);
+  const journal = new DemoJournal(view(), 0);
+  const final = view();
+  final.state = createPatternState({ tempo_bpm: 98, bars: 2, kit_id: "808", notes: [{ id: "note_1", instrument: "snare", bar: 2, tick: 480, velocity: 100 }] });
+  final.activity = [{ request: "Add a snare", steps: ["Edit pattern"], actions: ["Added snare"], details: null }];
+  journal.view(final, 950);
+  await h.studio.loadFile(new File([JSON.stringify(journal.finish({ mime_type: "audio/webm", base64: "AQID" }, 1000))], "demo.json"));
+  await h.studio.play();
+  h.advance(.5);
+  h.ended();
+  assert.deepEqual(h.finalViews[0], final);
+  h.finalViews[0]!.state.pattern.notes.length = 0;
+  await h.studio.play();
+  h.ended();
+  assert.equal(h.finalViews[1]!.state.pattern.notes.length, 1);
+  await h.studio.play();
+  h.studio.stopReplay();
+  assert.equal(h.finalViews[2], undefined);
 });

@@ -31,7 +31,7 @@ export function createDemoStudio(options: {
   onChange: () => void;
   onReplayView: (view: DemoView) => void;
   onReplayHit: (instrument: Instrument) => void;
-  onReplayEnd: (completed: boolean) => void;
+  onReplayEnd: (completed: boolean, finalView?: DemoView) => void;
 }) {
   let saved: DemoRecording | undefined;
   let journal: DemoJournal | undefined;
@@ -169,7 +169,7 @@ export function createDemoStudio(options: {
     if (audio) { audio.onended = null; audio.onerror = null; audio.pause(); audio.removeAttribute("src"); audio.load(); }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     audio = undefined; audioUrl = undefined; replaying = false; busy = false; caption = "";
-    options.onReplayEnd(completed); changed();
+    options.onReplayEnd(completed, completed && saved ? structuredClone(saved.frames.at(-1)!.view) : undefined); changed();
   }
   async function play() {
     if (!saved || journal || busy || replaying) return;

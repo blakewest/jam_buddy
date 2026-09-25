@@ -47,7 +47,7 @@ To author a demo locally, start the server with `DEMO_AUTHORING=1` (for example 
 
 In authoring mode, use **Record demo**, build your beat normally with **Hold to speak** or typed commands, then **Finish recording**. Start with **New session** first if you want an empty opening. Leave a few seconds at the end to hear the finished groove.
 
-**Play demo** replays the saved voice and drum audio, captions, selected areas, activity, pattern changes, and Jev animation. It makes no transcription or TypeSafe calls and restores your working beat when finished or stopped. Editing is locked during replay. Keep the tab visible; hiding it stops replay.
+**Play demo** replays the saved voice and drum audio, captions, selected areas, activity, pattern changes, and Jev animation. It makes no transcription or TypeSafe calls. Finishing keeps the demo's final beat and activity in your editable session; stopping early restores your previous working beat. Editing is locked during replay. Keep the tab visible; hiding it stops replay.
 
 The recorder captures the actual drum output throughout the demo and the microphone only while Hold to speak is active. A silent source keeps the recording stream continuous between sounds. It also retains each original microphone WAV, full transcript, analysis metadata, API requests/responses, and timed pattern states. The microphone is never monitored through speakers. Rejected requests remain in the recording; record another run if you want a clean take.
 
