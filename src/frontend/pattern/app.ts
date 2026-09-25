@@ -91,6 +91,7 @@ function revealWorkspace(animate = true) {
   document.body.classList.toggle("animate-workspace", animate);
   workspace.hidden = false;
   document.body.classList.remove("intro");
+  updateSuggestions(true);
 }
 
 const labels: Record<string, string> = { kick: "Kick", snare: "Snare", closed_hat: "Closed hat", open_hat: "Open hat", ride: "Ride", crash: "Crash", high_tom: "High tom", mid_tom: "Mid tom", floor_tom: "Floor tom" };
@@ -100,6 +101,17 @@ let replayRestore: { request: string; selection: BeatSelection | null; volume: s
 let demoTypingFrame = 0;
 let demoTypingText = "";
 const defaultRequestPlaceholder = $("request").placeholder;
+const starterSuggestions = Array.from(document.querySelectorAll<HTMLButtonElement>(".examples button"), button => button.textContent ?? "");
+const editingSuggestions = ["Change the kit to something more electronic", "Quiet down the snare drums", "Add a kick before the end of beat 1"];
+
+function updateSuggestions(editing: boolean) {
+  $("request").placeholder = editing ? "Make changes to the beat" : defaultRequestPlaceholder;
+  const suggestions = editing ? editingSuggestions : starterSuggestions;
+  document.querySelectorAll<HTMLButtonElement>(".examples button").forEach((button, index) => {
+    button.textContent = suggestions[index];
+  });
+}
+
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 function typeDemoText(text: string, target: "value" | "placeholder" = "value") {
@@ -847,6 +859,7 @@ $("new-session").addEventListener("click", () => {
   $("playback-status").textContent = "";
   document.getElementById("beat-workspace")!.hidden = true;
   document.body.classList.add("intro");
+  updateSuggestions(false);
   setRequestStatus("Type your idea, or hold the mic to speak.");
   focusRequest();
   $("request-meta").textContent = "No API call yet";
@@ -904,9 +917,8 @@ demo = createDemoStudio({
     hitTimers.clear();
     $("jev").className = "jev-kit";
     $("request").value = completed ? "" : replayRestore?.request ?? "";
-    $("request").placeholder = defaultRequestPlaceholder;
+    updateSuggestions(true);
     if (completed) {
-      typeDemoText("and now your turn! Keep building on this beat or start fresh!", "placeholder");
       $("request").classList.add("demo-invite");
     }
     gridSelection.set(completed ? null : replayRestore?.selection ?? null);

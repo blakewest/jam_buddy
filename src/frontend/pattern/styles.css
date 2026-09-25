@@ -80,7 +80,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .intro .prompt { margin-top: clamp(80px, 18vh, 200px); margin-bottom: 26vh; }
 .prompt h1 { max-width: 680px; margin: 0 auto 24px; font-size: clamp(27px, 3.5vw, 42px); line-height: 1.2; letter-spacing: -.04em; }
 body:not(.intro) .prompt h1 { display: none; }
-body:not(.intro) .examples { display: none; }
+body:not(.intro) .examples { justify-content: flex-start; }
 body:not(.intro) .prompt-row textarea { min-height: 44px; height: 44px; }
 .pending { display: inline-block; color: #c4b5e8; font-size: 11px; padding: 6px; }
 .pending[hidden] { display: none; }
